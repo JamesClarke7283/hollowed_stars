@@ -1,4 +1,8 @@
-"""Ship, fleet, and mothership definitions for Hollowed Stars."""
+"""Ship, fleet, and mothership definitions for Hollowed Stars.
+
+Ships are individually tracked with their own weapons and formation slots,
+per PLAN.md: "Each ship can be customised and outfitted with different weapons."
+"""
 
 from __future__ import annotations
 
@@ -78,18 +82,193 @@ class Resources:
     rare_materials: int = 500
 
 
+# ---------------------------------------------------------------------------
+# Individual fleet ship (per PLAN.md: each ship is customisable)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FleetShip:
+    """An individual ship in the player's fleet."""
+
+    name: str
+    ship_class: ShipClass
+    hull: int
+    max_hull: int
+    armor: int
+    weapon_slots: list[WeaponSlot] = field(default_factory=list)
+    formation_slot: int = 0
+
+    @property
+    def is_combat(self) -> bool:
+        return self.ship_class not in (ShipClass.SCOUT, ShipClass.MINER, ShipClass.TRANSPORT)
+
+    @property
+    def display_name(self) -> str:
+        return self.ship_class.value.replace("_", " ").title()
+
+
+# Ship class stats: hull, armor, weapon slots, build costs
+SHIP_CLASS_STATS: dict[ShipClass, dict] = {
+    # Combat ships (ascending)
+    ShipClass.DRONE: {
+        "hull": 30, "armor": 0,
+        "slots": [WeaponSize.SMALL],
+        "cost_metal": 100, "cost_energy": 50, "cost_rare": 0,
+    },
+    ShipClass.FIGHTER: {
+        "hull": 60, "armor": 5,
+        "slots": [WeaponSize.SMALL, WeaponSize.SMALL],
+        "cost_metal": 250, "cost_energy": 100, "cost_rare": 0,
+    },
+    ShipClass.CORVETTE: {
+        "hull": 150, "armor": 20,
+        "slots": [WeaponSize.SMALL, WeaponSize.SMALL, WeaponSize.SMALL],
+        "cost_metal": 600, "cost_energy": 300, "cost_rare": 20,
+    },
+    ShipClass.FRIGATE: {
+        "hull": 300, "armor": 40,
+        "slots": [WeaponSize.MEDIUM, WeaponSize.SMALL, WeaponSize.SMALL],
+        "cost_metal": 1200, "cost_energy": 600, "cost_rare": 60,
+    },
+    ShipClass.DESTROYER: {
+        "hull": 500, "armor": 60,
+        "slots": [WeaponSize.MEDIUM, WeaponSize.MEDIUM, WeaponSize.SMALL],
+        "cost_metal": 2000, "cost_energy": 1000, "cost_rare": 120,
+    },
+    ShipClass.CRUISER: {
+        "hull": 800, "armor": 100,
+        "slots": [WeaponSize.LARGE, WeaponSize.MEDIUM, WeaponSize.MEDIUM, WeaponSize.SMALL],
+        "cost_metal": 3500, "cost_energy": 1800, "cost_rare": 250,
+    },
+    ShipClass.HEAVY_CRUISER: {
+        "hull": 1200, "armor": 150,
+        "slots": [WeaponSize.LARGE, WeaponSize.LARGE, WeaponSize.MEDIUM, WeaponSize.MEDIUM, WeaponSize.SMALL],
+        "cost_metal": 5000, "cost_energy": 2500, "cost_rare": 400,
+    },
+    ShipClass.BATTLESHIP: {
+        "hull": 2000, "armor": 250,
+        "slots": [WeaponSize.CAPITAL, WeaponSize.LARGE, WeaponSize.LARGE, WeaponSize.MEDIUM, WeaponSize.MEDIUM, WeaponSize.SMALL, WeaponSize.SMALL],
+        "cost_metal": 8000, "cost_energy": 4000, "cost_rare": 800,
+    },
+    # Non-combat ships
+    ShipClass.SCOUT: {
+        "hull": 40, "armor": 0,
+        "slots": [],
+        "cost_metal": 150, "cost_energy": 100, "cost_rare": 10,
+    },
+    ShipClass.MINER: {
+        "hull": 80, "armor": 10,
+        "slots": [],
+        "cost_metal": 300, "cost_energy": 150, "cost_rare": 0,
+    },
+    ShipClass.TRANSPORT: {
+        "hull": 120, "armor": 15,
+        "slots": [],
+        "cost_metal": 500, "cost_energy": 200, "cost_rare": 10,
+    },
+}
+
+
+def build_fleet_ship(ship_class: ShipClass, name: str, formation_slot: int = 0) -> FleetShip:
+    """Create a new FleetShip with default stats for its class."""
+    stats = SHIP_CLASS_STATS[ship_class]
+    return FleetShip(
+        name=name,
+        ship_class=ship_class,
+        hull=stats["hull"],
+        max_hull=stats["hull"],
+        armor=stats["armor"],
+        weapon_slots=[WeaponSlot(size) for size in stats["slots"]],
+        formation_slot=formation_slot,
+    )
+
+
 @dataclass
 class Fleet:
     """The player's entire fleet state."""
 
     mothership: Mothership
-    ships: dict[ShipClass, int] = field(default_factory=dict)
+    ships: list[FleetShip] = field(default_factory=list)
     resources: Resources = field(default_factory=Resources)
     colonists: int = 1_000_000
 
     @property
     def total_ships(self) -> int:
-        return sum(self.ships.values())
+        return len(self.ships)
+
+    @property
+    def combat_ships(self) -> list[FleetShip]:
+        return [s for s in self.ships if s.is_combat]
+
+    @property
+    def scouts(self) -> list[FleetShip]:
+        return [s for s in self.ships if s.ship_class == ShipClass.SCOUT]
+
+    @property
+    def miners(self) -> list[FleetShip]:
+        return [s for s in self.ships if s.ship_class == ShipClass.MINER]
+
+    @property
+    def transports(self) -> list[FleetShip]:
+        return [s for s in self.ships if s.ship_class == ShipClass.TRANSPORT]
+
+    @property
+    def scout_bonus(self) -> float:
+        """Sensor range multiplier from scouts (each adds 20%)."""
+        return 1.0 + len(self.scouts) * 0.2
+
+    @property
+    def mining_bonus(self) -> float:
+        """Resource yield multiplier from miners (each adds 25%)."""
+        return 1.0 + len(self.miners) * 0.25
+
+    @property
+    def transport_capacity(self) -> int:
+        """Extra colonist capacity from transports (50k each)."""
+        return len(self.transports) * 50_000
+
+    @property
+    def effective_colonist_capacity(self) -> int:
+        return self.mothership.colonist_capacity + self.transport_capacity
+
+    def can_build(self, ship_class: ShipClass) -> bool:
+        """Check if we have resources and hangar space."""
+        if self.total_ships >= self.mothership.hangar_capacity:
+            return False
+        stats = SHIP_CLASS_STATS[ship_class]
+        return (
+            self.resources.metal >= stats["cost_metal"]
+            and self.resources.energy >= stats["cost_energy"]
+            and self.resources.rare_materials >= stats["cost_rare"]
+        )
+
+    def build_ship(self, ship_class: ShipClass, name: str | None = None) -> FleetShip | None:
+        """Build a new ship, deducting resources. Returns the ship or None."""
+        if not self.can_build(ship_class):
+            return None
+        stats = SHIP_CLASS_STATS[ship_class]
+        self.resources.metal -= stats["cost_metal"]
+        self.resources.energy -= stats["cost_energy"]
+        self.resources.rare_materials -= stats["cost_rare"]
+
+        if name is None:
+            # Auto-name: "Corvette 3"
+            existing = sum(1 for s in self.ships if s.ship_class == ship_class)
+            name = f"{ship_class.value.replace('_', ' ').title()} {existing + 1}"
+
+        slot = max((s.formation_slot for s in self.ships), default=0) + 1
+        ship = build_fleet_ship(ship_class, name, slot)
+        self.ships.append(ship)
+        return ship
+
+    def scrap_ship(self, ship: FleetShip) -> None:
+        """Scrap a ship, recovering 50% of build cost."""
+        if ship in self.ships:
+            stats = SHIP_CLASS_STATS[ship.ship_class]
+            self.resources.metal += stats["cost_metal"] // 2
+            self.resources.energy += stats["cost_energy"] // 2
+            self.resources.rare_materials += stats["cost_rare"] // 2
+            self.ships.remove(ship)
 
 
 # ---------------------------------------------------------------------------

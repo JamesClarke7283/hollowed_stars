@@ -46,6 +46,9 @@ class EventDialogScreen:
         self.combat_danger = 0
         self.combat_is_federation = False
 
+        # Colony establishment flag (set when colonists are sent to establish a colony)
+        self.colony_established = False
+
     def handle_events(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if self.outcome is not None:
@@ -170,6 +173,10 @@ class EventDialogScreen:
         self.fleet.resources.rare_materials += outcome.rare
         self.fleet.colonists += outcome.colonists
         self.fleet.mothership.hull += outcome.hull_change
+
+        # Detect colony establishment (colonists sent to settle)
+        if outcome.colonists < 0 and "colony" in outcome.description.lower():
+            self.colony_established = True
 
         # Clamp values
         self.fleet.colonists = max(0, self.fleet.colonists)

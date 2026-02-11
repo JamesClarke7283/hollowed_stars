@@ -69,6 +69,8 @@ class StarMapScreen:
                 self._start_travel(self.selected_system_id)
             elif event.key == pygame.K_TAB:
                 self.next_state = GameState.MOTHERSHIP
+            elif event.key == pygame.K_f:
+                self.next_state = GameState.FLEET_MANAGEMENT
         elif event.type == pygame.KEYUP:
             self._keys_held.discard(event.key)
         elif event.type == pygame.MOUSEWHEEL:

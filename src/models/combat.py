@@ -3,8 +3,7 @@
 Implements PLAN.md orbital interception combat:
 - Ships match enemy orbit for brief engagement windows
 - Formation is set pre-combat and locked during
-- Actions are planned 2 turns ahead for fleet ships
-- Mothership is directly controlled (real-time decisions)
+- Fleet ships plan 2 turns ahead; mothership is directly controlled
 - PD intercepts missiles, lasers bypass PD
 """
 
@@ -15,7 +14,7 @@ import math
 import random
 from dataclasses import dataclass, field
 
-from .ships import Fleet, ShipClass
+from .ships import Fleet, FleetShip, ShipClass, SHIP_CLASS_STATS, WeaponSize
 from .weapons import (
     Weapon,
     WeaponRange,
@@ -27,6 +26,7 @@ from .weapons import (
     RAILGUN_MEDIUM,
     PD_CANNON_SMALL,
     LASER_MEDIUM,
+    weapons_for_size,
 )
 
 
@@ -57,7 +57,13 @@ class CombatShip:
     energy_remaining: int = 1000
     pd_charges: int = 0  # How many missiles PD can intercept this window
 
-    # Action queue (2-turn lookahead per PLAN.md)
+    # Link back to FleetShip (player ships only)
+    fleet_ship_ref: FleetShip | None = None
+
+    # Is this the mothership? (directly controlled per PLAN.md)
+    is_mothership: bool = False
+
+    # Action queue (2-turn lookahead per PLAN.md, for fleet ships only)
     planned_actions: list[CombatAction | None] = field(default_factory=lambda: [None, None])
 
     @property
@@ -145,11 +151,7 @@ class CombatEngine:
         ms = self.player_fleet.mothership
         mothership_weapons = []
         for slot in ms.weapon_slots:
-            if slot.equipped:
-                # For now, give default weapons based on slot size
-                mothership_weapons.append(self._default_weapon_for_size(slot.size.value))
-            else:
-                mothership_weapons.append(self._default_weapon_for_size(slot.size.value))
+            mothership_weapons.append(self._default_weapon_for_size(slot.size.value))
 
         ships.append(CombatShip(
             name=ms.name,
@@ -159,25 +161,28 @@ class CombatEngine:
             armor=ms.armor,
             weapons=mothership_weapons,
             energy_remaining=ms.power,
+            is_mothership=True,
         ))
 
-        # Fleet ships
-        slot = 1
-        for ship_class, count in self.player_fleet.ships.items():
-            for i in range(count):
-                stats = _SHIP_CLASS_STATS.get(ship_class, _DEFAULT_STATS)
-                combat_ship = CombatShip(
-                    name=f"{ship_class.value.replace('_', ' ').title()} {i + 1}",
-                    ship_class=ship_class,
-                    hull=stats["hull"],
-                    max_hull=stats["hull"],
-                    armor=stats["armor"],
-                    weapons=stats["weapons"](),
-                    formation_slot=slot,
-                    energy_remaining=stats["energy"],
-                )
-                ships.append(combat_ship)
-                slot += 1
+        # Individual fleet ships (only combat-capable ones)
+        for fs in self.player_fleet.ships:
+            if not fs.is_combat:
+                continue
+            # Build weapons from equipped slots
+            ship_weapons: list[Weapon] = []
+            for slot in fs.weapon_slots:
+                ship_weapons.append(self._default_weapon_for_size(slot.size.value))
+            ships.append(CombatShip(
+                name=fs.name,
+                ship_class=fs.ship_class,
+                hull=fs.hull,
+                max_hull=fs.max_hull,
+                armor=fs.armor,
+                weapons=ship_weapons,
+                formation_slot=fs.formation_slot,
+                energy_remaining=500,
+                fleet_ship_ref=fs,
+            ))
 
         return ships
 
@@ -368,6 +373,15 @@ class CombatEngine:
             ms_combat = self.player_ships[0]
             self.player_fleet.mothership.hull = ms_combat.hull
 
+        # Remove destroyed fleet ships
+        destroyed_refs = set()
+        for cs in self.player_ships:
+            if not cs.is_alive and cs.fleet_ship_ref is not None:
+                destroyed_refs.add(id(cs.fleet_ship_ref))
+        self.player_fleet.ships = [
+            s for s in self.player_fleet.ships if id(s) not in destroyed_refs
+        ]
+
         # Award loot if won
         loot = {"metal": 0, "energy": 0, "rare": 0}
         if self.player_won:
@@ -382,7 +396,7 @@ class CombatEngine:
 
 
 # ---------------------------------------------------------------------------
-# Ship class combat stats
+# Ship class combat stats (for enemy generation)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_STATS = {

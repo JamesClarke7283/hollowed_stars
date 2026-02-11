@@ -197,10 +197,23 @@ class ShipSelectScreen:
         return lines
 
     def _confirm_selection(self) -> None:
+        from ..models.ships import build_fleet_ship, ShipClass
         ship = self.selected_ship
         self.chosen_fleet = Fleet(
             mothership=ship,
             colonists=min(1_000_000, ship.colonist_capacity),
         )
+        # Start with a small default fleet per PLAN.md
+        default_fleet = [
+            (ShipClass.CORVETTE, "Vanguard"),
+            (ShipClass.CORVETTE, "Sentinel"),
+            (ShipClass.FIGHTER, "Arrow 1"),
+            (ShipClass.FIGHTER, "Arrow 2"),
+            (ShipClass.SCOUT, "Pathfinder"),
+            (ShipClass.MINER, "Excavator"),
+        ]
+        for sc, name in default_fleet:
+            self.chosen_fleet.ships.append(build_fleet_ship(sc, name, len(self.chosen_fleet.ships) + 1))
+
         self.next_state = GameState.STAR_MAP
 

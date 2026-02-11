@@ -1,0 +1,10 @@
+[project]
+name = "hollowed-stars"
+version = "0.1.0"
+description = "A 2D real-time strategy game where you command humanity's last arkship across a dead galaxy"
+requires-python = ">=3.14"
+license = "GPL-3.0-or-later"
+authors = [
+    { name = "James David Clarke", email = "james@jamesdavidclarke.com" },
+]
+dependencies = ["pygame-ce>=2.5.6"]

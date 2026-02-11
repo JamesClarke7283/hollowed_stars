@@ -1,0 +1,18 @@
+"""Game state management for Hollowed Stars."""
+
+import enum
+
+
+class GameState(enum.Enum):
+    """Top-level game states."""
+
+    TITLE = "title"
+    SHIP_SELECT = "ship_select"
+    STAR_MAP = "star_map"
+    SYSTEM_VIEW = "system_view"
+    COMBAT = "combat"
+    EVENT_DIALOG = "event_dialog"
+    MOTHERSHIP = "mothership"
+    FLEET_MANAGEMENT = "fleet_management"
+    GAME_OVER = "game_over"
+

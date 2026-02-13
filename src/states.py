@@ -10,9 +10,11 @@ class GameState(enum.Enum):
     SHIP_SELECT = "ship_select"
     STAR_MAP = "star_map"
     SYSTEM_VIEW = "system_view"
+    FORMATION_SETUP = "formation_setup"
     COMBAT = "combat"
     EVENT_DIALOG = "event_dialog"
     MOTHERSHIP = "mothership"
     FLEET_MANAGEMENT = "fleet_management"
     GAME_OVER = "game_over"
+
 

@@ -12,11 +12,12 @@ from .models.combat import CombatEngine, EnemyFleet, generate_enemy_fleet
 from .models.events import get_event_for_object_type
 from .models.galaxy import Galaxy
 from .models.mothership_systems import ShipSystem, apply_ftl_decay, create_default_systems
-from .models.quest import QuestState
-from .models.ships import Fleet
+from .models.quest import LoreEntry, QuestFlag, QuestState
+from .models.ships import SIGNAL_OF_DAWN, Fleet
 from .screens.combat import CombatScreen
 from .screens.event_dialog import EventDialogScreen
 from .screens.fleet_screen import FleetScreen
+from .screens.formation_screen import FormationScreen
 from .screens.mothership import MothershipScreen
 from .screens.ship_select import ShipSelectScreen
 from .screens.star_map import StarMapScreen
@@ -57,6 +58,11 @@ class Game:
         self.event_dialog_screen: EventDialogScreen | None = None
         self.mothership_screen: MothershipScreen | None = None
         self.fleet_screen: FleetScreen | None = None
+        self.formation_screen: FormationScreen | None = None
+
+        # Pending combat from events (stored so formation screen can route to it)
+        self._pending_enemy: EnemyFleet | None = None
+        self._pending_combat_quest_flag: str = ""
 
         # Cryosleep overlay state
         self._cryosleep_active = False
@@ -111,6 +117,8 @@ class Game:
                 self.mothership_screen.handle_events(event)
             elif self.state == GameState.FLEET_MANAGEMENT and self.fleet_screen:
                 self.fleet_screen.handle_events(event)
+            elif self.state == GameState.FORMATION_SETUP and self.formation_screen:
+                self.formation_screen.handle_events(event)
             elif self.state == GameState.GAME_OVER:
                 if event.type == pygame.KEYDOWN:
                     self.running = False
@@ -167,7 +175,9 @@ class Game:
             self.star_map_screen.update(dt)
             if self.star_map_screen.next_state:
                 if self.star_map_screen.next_state == GameState.SYSTEM_VIEW:
-                    self.system_view_screen = SystemViewScreen(self.galaxy, self.fleet)
+                    self.system_view_screen = SystemViewScreen(
+                        self.galaxy, self.fleet, self.quest_state,
+                    )
 
                     # Apply FTL maintenance decay when traveling
                     self._cryosleep_decay_msgs = []
@@ -175,6 +185,12 @@ class Game:
                         warnings = apply_ftl_decay(self.mothership_systems)
                         if warnings:
                             self._cryosleep_decay_msgs = [str(w) for w in warnings]
+
+                    # Passive sublight decay (PLAN.md: maintenance goes down with use and time)
+                    for sys in self.mothership_systems:
+                        sys.maintenance_level = max(
+                            0.0, sys.maintenance_level - 0.02,
+                        )
 
                     # Cryosleep: years pass, colonists may die
                     self._cryosleep_years = random.randint(200, 2000)
@@ -216,6 +232,12 @@ class Game:
                 # Apply combat results (fleet losses, loot)
                 if self.combat_screen.engine and self.fleet:
                     self.combat_screen.engine.apply_results_to_fleet()
+
+                    # Process pending combat quest flag (e.g. defeated Earth defense)
+                    if self._pending_combat_quest_flag:
+                        self._process_quest_flag(self._pending_combat_quest_flag)
+                        self._pending_combat_quest_flag = ""
+
                 self.state = self.combat_screen.next_state
                 self.combat_screen.next_state = None
                 self.combat_screen = None
@@ -224,15 +246,21 @@ class Game:
         elif self.state == GameState.EVENT_DIALOG and self.event_dialog_screen:
             self.event_dialog_screen.update(dt)
             if self.event_dialog_screen.next_state:
+                # Process quest flag from the resolved outcome
+                self._process_quest_flag(self.event_dialog_screen.resolved_quest_flag)
+
                 # Check if event triggered combat
                 if self.event_dialog_screen.trigger_combat and self.fleet:
                     enemy = generate_enemy_fleet(
                         self.event_dialog_screen.combat_danger,
                         self.event_dialog_screen.combat_is_federation,
                     )
-                    engine = CombatEngine(self.fleet, enemy)
-                    self.combat_screen = CombatScreen(engine)
-                    self.state = GameState.COMBAT
+                    self._pending_enemy = enemy
+                    self._pending_combat_quest_flag = self.event_dialog_screen.resolved_quest_flag
+                    # Route through formation setup before combat
+                    self.formation_screen = FormationScreen()
+                    self.formation_screen.setup(self.fleet)
+                    self.state = GameState.FORMATION_SETUP
                 else:
                     # Check for colony establishment
                     if hasattr(self.event_dialog_screen, 'colony_established') and self.event_dialog_screen.colony_established:
@@ -252,6 +280,19 @@ class Game:
             if self.fleet_screen.next_state:
                 self.state = self.fleet_screen.next_state
                 self.fleet_screen.next_state = None
+
+        elif self.state == GameState.FORMATION_SETUP and self.formation_screen:
+            self.formation_screen.update(dt)
+            if self.formation_screen.next_state == GameState.COMBAT:
+                # Formation confirmed — start combat
+                if self._pending_enemy and self.fleet:
+                    engine = CombatEngine(self.fleet, self._pending_enemy)
+                    self.combat_screen = CombatScreen(engine)
+                    self.state = GameState.COMBAT
+                    self._pending_enemy = None
+                else:
+                    self.state = GameState.SYSTEM_VIEW
+                self.formation_screen = None
 
         elif self.state == GameState.GAME_OVER:
             self._game_over_timer += dt
@@ -289,6 +330,10 @@ class Game:
                 self.hud.draw(self.screen, self.fleet)
         elif self.state == GameState.FLEET_MANAGEMENT and self.fleet_screen:
             self.fleet_screen.draw(self.screen)
+            if self.fleet:
+                self.hud.draw(self.screen, self.fleet)
+        elif self.state == GameState.FORMATION_SETUP and self.formation_screen:
+            self.formation_screen.draw(self.screen)
             if self.fleet:
                 self.hud.draw(self.screen, self.fleet)
         elif self.state == GameState.GAME_OVER:
@@ -352,6 +397,86 @@ class Game:
         if self._cryosleep_timer > 2.0:
             hint = font_small.render("Awakening...", True, LIGHT_GREY)
             self.screen.blit(hint, ((SCREEN_WIDTH - hint.get_width()) // 2, SCREEN_HEIGHT - 80))
+
+    # ------------------------------------------------------------------
+    # Quest progression
+    # ------------------------------------------------------------------
+
+    # Map event outcome quest_flag strings to QuestFlag enum values
+    _QUEST_FLAG_MAP: dict[str, QuestFlag] = {
+        "class_4_id_code": QuestFlag.CLASS_4_ID_CODE,
+        "defeated_earth_defense": QuestFlag.DEFEATED_EARTH_DEFENSE,
+        "discovered_earth": QuestFlag.DISCOVERED_EARTH,
+        "reached_gateway": QuestFlag.REACHED_GATEWAY,
+        "defeated_ninurta": QuestFlag.DEFEATED_NINURTA,
+        "lore_old_federation": QuestFlag.LORE_FRAGMENT_1,
+        "lore_prison_station": QuestFlag.LORE_FRAGMENT_2,
+        "lore_gateway_project": QuestFlag.LORE_FRAGMENT_3,
+        "lore_ninurta_origin": QuestFlag.LORE_FRAGMENT_4,
+        "lore_exiles": QuestFlag.LORE_FRAGMENT_5,
+    }
+
+    def _process_quest_flag(self, flag_str: str) -> None:
+        """Process a quest flag string from an event outcome."""
+        if not flag_str:
+            return
+
+        flag = self._QUEST_FLAG_MAP.get(flag_str)
+        if flag is None:
+            return
+
+        self.quest_state.set_flag(flag)
+
+        # Lore fragments — create a LoreEntry
+        if flag_str.startswith("lore_"):
+            lore_data = {
+                "lore_old_federation": (
+                    "The Fall of the Federation",
+                    "The Old Federation collapsed 5000 years ago in a war against Ninurta.",
+                ),
+                "lore_prison_station": (
+                    "The Prison Station",
+                    "Your prison station was once a Federation military outpost.",
+                ),
+                "lore_gateway_project": (
+                    "Project Gateway",
+                    "The Trans-Galactic Gateway was the Federation's greatest achievement.",
+                ),
+                "lore_ninurta_origin": (
+                    "The Entity Called Ninurta",
+                    "Ninurta is a malevolent entity that consumed the galaxy's life.",
+                ),
+                "lore_exiles": (
+                    "The Exiles' Legacy",
+                    "Not all Federation survivors perished. Some became the exiles.",
+                ),
+            }
+            title, text = lore_data.get(flag_str, ("Unknown Fragment", "A fragment of lost history."))
+            self.quest_state.add_lore(LoreEntry(title=title, text=text, quest_flag=flag))
+
+        # Signal of Dawn unlock chain:
+        # Defeating Earth defense → unlock Signal of Dawn → swap mothership
+        if flag == QuestFlag.DEFEATED_EARTH_DEFENSE:
+            self.quest_state.set_flag(QuestFlag.UNLOCKED_SIGNAL_OF_DAWN)
+            self.quest_state.set_flag(QuestFlag.CLASS_1_ID_CODE)
+
+            # Swap mothership — preserve fleet, resources, colonists
+            if self.fleet:
+                old = self.fleet.mothership
+                new_ms = SIGNAL_OF_DAWN
+                # Copy dynamic state
+                new_ms.hull = new_ms.max_hull
+                new_ms.power = new_ms.max_power
+                self.fleet.mothership = new_ms
+                # Keep colonists (capped at new capacity)
+                self.fleet.colonists = min(
+                    self.fleet.colonists,
+                    self.fleet.effective_colonist_capacity,
+                )
+
+        # True ending: defeating Ninurta means crossing to Andromeda
+        if flag == QuestFlag.DEFEATED_NINURTA:
+            self.quest_state.set_flag(QuestFlag.CROSSED_TO_ANDROMEDA)
 
     # ------------------------------------------------------------------
     # Game over

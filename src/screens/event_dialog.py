@@ -49,6 +49,9 @@ class EventDialogScreen:
         # Colony establishment flag (set when colonists are sent to establish a colony)
         self.colony_established = False
 
+        # Quest flag resolved from outcome
+        self.resolved_quest_flag: str = ""
+
     def handle_events(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if self.outcome is not None:
@@ -177,6 +180,10 @@ class EventDialogScreen:
         # Detect colony establishment (colonists sent to settle)
         if outcome.colonists < 0 and "colony" in outcome.description.lower():
             self.colony_established = True
+
+        # Track quest flag for game.py to process
+        if outcome.quest_flag:
+            self.resolved_quest_flag = outcome.quest_flag
 
         # Clamp values
         self.fleet.colonists = max(0, self.fleet.colonists)

@@ -20,8 +20,9 @@ from ..constants import (
     STAR_COLORS,
     WHITE,
 )
-from ..models.events import Event, get_event_for_object_type
+from ..models.events import Event, get_event_for_object_type, get_quest_event
 from ..models.galaxy import Galaxy, ObjectType, StarSystem, SystemObject
+from ..models.quest import QuestFlag, QuestState
 from ..models.ships import Fleet
 from ..states import GameState
 
@@ -49,9 +50,10 @@ _OBJECT_ICONS: dict[ObjectType, str] = {
 class SystemViewScreen:
     """In-system exploration: star and orbiting objects."""
 
-    def __init__(self, galaxy: Galaxy, fleet: Fleet) -> None:
+    def __init__(self, galaxy: Galaxy, fleet: Fleet, quest_state: QuestState | None = None) -> None:
         self.galaxy = galaxy
         self.fleet = fleet
+        self.quest_state = quest_state or QuestState()
         self.font_title = pygame.font.Font(None, 40)
         self.font_name = pygame.font.Font(None, 28)
         self.font_info = pygame.font.Font(None, 24)
@@ -90,8 +92,11 @@ class SystemViewScreen:
     def update(self, dt: float) -> None:
         self.timer += dt
 
+        # Only iterate visible objects (quest-filtered)
+        visible = self._visible_objects()
+
         # Rotate objects
-        for obj in self.system.objects:
+        for obj in visible:
             speed = 0.15 / max(obj.orbit_radius, 0.1)
             obj.orbit_angle += speed * dt
 
@@ -136,8 +141,9 @@ class SystemViewScreen:
             pygame.draw.circle(glow_surf, (*star_color, max(alpha, 0)), (star_radius * 3, star_radius * 3), r)
         surface.blit(glow_surf, (self.center_x - star_radius * 3, self.center_y - star_radius * 3))
 
-        # Objects
-        for obj in system.objects:
+        # Objects (only visible ones — quest objects hidden without flags)
+        visible = self._visible_objects()
+        for obj in visible:
             self._draw_object(surface, obj, scale)
 
         # Selected object panel
@@ -184,7 +190,7 @@ class SystemViewScreen:
         best: SystemObject | None = None
         best_dist = float("inf")
 
-        for obj in self.system.objects:
+        for obj in self._visible_objects():
             ox = self.center_x + int(math.cos(obj.orbit_angle) * obj.orbit_radius * scale)
             oy = self.center_y + int(math.sin(obj.orbit_angle) * obj.orbit_radius * scale)
             dist = math.hypot(mx - ox, my - oy)
@@ -206,6 +212,30 @@ class SystemViewScreen:
 
         obj.surveyed = True
 
+        # Quest-critical objects use their own event pool
+        if obj.special_tag:
+            event = get_quest_event(obj.special_tag)
+            if event:
+                self.pending_event = event
+                self.next_state = GameState.EVENT_DIALOG
+                return
+
+        # Mining: asteroid fields yield resources scaled by mining bonus
+        if obj.obj_type == ObjectType.ASTEROID_FIELD:
+            base_yield = obj.loot_value
+            bonus = self.fleet.mining_bonus
+            metal_gain = int(base_yield * bonus)
+            rare_gain = int(base_yield * 0.15 * bonus)
+            self.fleet.resources.metal += metal_gain
+            self.fleet.resources.rare_materials += rare_gain
+            self._message = (
+                f"Mined {obj.name} — {metal_gain} metal, {rare_gain} rare "
+                f"(mining bonus: x{bonus:.1f})"
+            )
+            self._message_color = HULL_GREEN
+            self._message_timer = 3.5
+            return
+
         # Try to trigger a narrative event
         event = get_event_for_object_type(obj.obj_type.value)
         if event:
@@ -221,6 +251,21 @@ class SystemViewScreen:
                 self._message = f"Surveyed {obj.name} — nothing of value."
                 self._message_color = LIGHT_GREY
             self._message_timer = 3.0
+
+    def _visible_objects(self) -> list[SystemObject]:
+        """Filter objects based on quest state — hide locked quest objectives."""
+        visible: list[SystemObject] = []
+        for obj in self.system.objects:
+            if obj.special_tag == "earth":
+                # Earth is only visible with Class 4 ID Code
+                if not self.quest_state.has_flag(QuestFlag.CLASS_4_ID_CODE):
+                    continue
+            elif obj.special_tag == "gateway":
+                # Gateway requires Signal of Dawn (Class 1 ID Code)
+                if not self.quest_state.has_flag(QuestFlag.UNLOCKED_SIGNAL_OF_DAWN):
+                    continue
+            visible.append(obj)
+        return visible
 
     def _draw_object_panel(self, surface: pygame.Surface, obj: SystemObject) -> None:
         panel_w = 300

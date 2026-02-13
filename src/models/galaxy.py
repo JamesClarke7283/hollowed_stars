@@ -51,6 +51,7 @@ class SystemObject:
     surveyed: bool = False
     danger_level: int = 0  # 0 = safe, 1–5 = increasing risk
     loot_value: int = 0  # Resource reward for surveying/salvaging
+    special_tag: str = ""  # Quest-critical tag: "earth", "gateway", "ninurta"
 
 
 @dataclass
@@ -348,12 +349,60 @@ class Galaxy:
             math.hypot(s.x - start.x, s.y - start.y) for s in self.systems
         )
 
+        # Sort by distance to assign quest locations to far-away systems
+        by_distance = sorted(
+            self.systems,
+            key=lambda s: math.hypot(s.x - start.x, s.y - start.y),
+        )
+
+        # Pick high-danger systems for Earth and Gateway
+        earth_system = by_distance[-3] if len(by_distance) > 3 else by_distance[-1]
+        gateway_system = by_distance[-1]
+
         for system in self.systems:
             dist = math.hypot(system.x - start.x, system.y - start.y)
             # Danger scales 0–5 with distance from start
             danger = int((dist / max(max_dist, 1)) * 5)
             system.danger_level = min(danger, 5)
             system.objects = _generate_objects(self.rng, system.danger_level)
+
+        # Inject quest-critical objects
+        earth_system.objects.append(
+            SystemObject(
+                obj_type=ObjectType.STATION_RUIN,
+                name="Sol System — Earth",
+                description=(
+                    "The cradle of humanity. A dead world orbited by the "
+                    "wreckage of the old federation's mightiest fleet. "
+                    "The Signal of Dawn waits in eternal orbit."
+                ),
+                orbit_radius=0.5,
+                orbit_angle=self.rng.uniform(0, math.tau),
+                danger_level=5,
+                loot_value=0,
+                special_tag="earth",
+            )
+        )
+        earth_system.name = f"{earth_system.name} (Sol Sector)"
+
+        gateway_system.objects.append(
+            SystemObject(
+                obj_type=ObjectType.ANOMALY,
+                name="Trans-Galactic Gateway",
+                description=(
+                    "The colossal gateway built by the old federation. "
+                    "It hums with dormant power, waiting for a Class 1 "
+                    "Identification Code to activate. Beyond it lies "
+                    "Andromeda — and Ninurta."
+                ),
+                orbit_radius=0.3,
+                orbit_angle=self.rng.uniform(0, math.tau),
+                danger_level=5,
+                loot_value=0,
+                special_tag="gateway",
+            )
+        )
+        gateway_system.name = f"{gateway_system.name} (Gateway Sector)"
 
     # ------------------------------------------------------------------
     # Queries

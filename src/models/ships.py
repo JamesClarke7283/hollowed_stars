@@ -364,3 +364,44 @@ MOTHERSHIPS: list[Mothership] = [
         special_description="Reveals all objects and dangers in a system before entering, preventing ambushes.",
     ),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Signal of Dawn — unlockable federation flagship (PLAN.md true ending path)
+# ---------------------------------------------------------------------------
+
+SIGNAL_OF_DAWN = Mothership(
+    name="Signal of Dawn",
+    description="The old federation flagship. Unmatched in every way.",
+    lore=(
+        "The Signal of Dawn was the pride of the Old Federation's fleet.\n"
+        "Designed as the vanguard for the Trans-Galactic Gateway project,\n"
+        "it carries the experimental flagship beam — a weapon of\n"
+        "incomprehensible power. Its Class 1 Identification Code grants\n"
+        "access to the Gateway itself. Now, after 5000 years of silence,\n"
+        "it answers to a new Admiral."
+    ),
+    hull=25000,
+    max_hull=25000,
+    armor=1200,
+    power=15000,
+    max_power=15000,
+    speed=1.2,
+    sensor_range=2.5,
+    colonist_capacity=2_000_000,
+    hangar_capacity=50,
+    weapon_slots=[
+        WeaponSlot(WeaponSize.CAPITAL),   # Flagship Beam slot
+        WeaponSlot(WeaponSize.CAPITAL),
+        WeaponSlot(WeaponSize.LARGE),
+        WeaponSlot(WeaponSize.LARGE),
+        WeaponSlot(WeaponSize.LARGE),
+        WeaponSlot(WeaponSize.MEDIUM),
+        WeaponSlot(WeaponSize.MEDIUM),
+        WeaponSlot(WeaponSize.MEDIUM),
+        WeaponSlot(WeaponSize.SMALL),
+        WeaponSlot(WeaponSize.SMALL),
+    ],
+    special_ability="Class 1 Identification Code",
+    special_description="Grants access to the Trans-Galactic Gateway. The key to humanity's true salvation.",
+)

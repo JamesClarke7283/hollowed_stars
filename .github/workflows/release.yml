@@ -30,12 +30,22 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
+      - name: Install SDL2 dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
+
+      - name: Install SDL2 dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sdl2 sdl2_image sdl2_mixer sdl2_ttf
+
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --all-extras --python 3.13
 
       - name: Build with PyInstaller
         run: >
-          uv run pyinstaller
+          uv run --python 3.13 pyinstaller
           --onefile
           --name ${{ matrix.artifact }}
           main.py

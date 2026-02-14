@@ -14,10 +14,13 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: hollowed-stars-linux
+            separator: ":"
           - os: windows-latest
             artifact: hollowed-stars-windows.exe
+            separator: ";"
           - os: macos-latest
             artifact: hollowed-stars-macos
+            separator: ":"
 
     runs-on: ${{ matrix.os }}
 
@@ -38,7 +41,7 @@ jobs:
           uv run pyinstaller
           --onefile
           --name ${{ matrix.artifact }}
-          --add-data "src:src"
+          --add-data "src${{ matrix.separator }}src"
           src/__main__.py
 
       - name: Upload artifact

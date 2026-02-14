@@ -28,27 +28,24 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Set up Python
-        run: uv python install
+        run: uv python install 3.13
 
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Build with Nuitka
+      - name: Build with PyInstaller
         run: >
-          uv run python -m nuitka
-          --standalone
+          uv run pyinstaller
           --onefile
-          --python-flag=-m
-          --module-parameter=pygame-ce=mode:pygame
-          --output-filename=${{ matrix.artifact }}
-          --assume-yes-for-downloads
-          src
+          --name ${{ matrix.artifact }}
+          --add-data "src:src"
+          src/__main__.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
 
   release:
     needs: build

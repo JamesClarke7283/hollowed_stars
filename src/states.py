@@ -16,5 +16,6 @@ class GameState(enum.Enum):
     MOTHERSHIP = "mothership"
     CAPTAINS_LOG = "captains_log"
     GAME_OVER = "game_over"
+    CREDITS = "credits"
 
 

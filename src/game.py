@@ -13,9 +13,11 @@ from .models.events import get_event_for_object_type
 from .models.galaxy import Galaxy
 from .models.mothership_systems import ShipSystem, apply_ftl_decay, create_default_systems
 from .models.quest import LoreEntry, QuestFlag, QuestState
+from .models.save import delete_save, load_game, save_game
 from .models.ships import SIGNAL_OF_DAWN, Fleet
 from .screens.combat import CombatScreen
 from .screens.captains_log import CaptainsLogScreen
+from .screens.credits import CreditsScreen
 from .screens.event_dialog import EventDialogScreen
 from .screens.formation_screen import FormationScreen
 from .screens.mothership import MothershipScreen
@@ -59,6 +61,11 @@ class Game:
         self.mothership_screen: MothershipScreen | None = None
         self.formation_screen: FormationScreen | None = None
         self.captains_log_screen: CaptainsLogScreen | None = None
+        self.credits_screen: CreditsScreen | None = None
+
+        # Save feedback
+        self._save_msg = ""
+        self._save_msg_timer = 0.0
 
         # Pending combat from events (stored so formation screen can route to it)
         self._pending_enemy: EnemyFleet | None = None
@@ -100,6 +107,18 @@ class Game:
                 self._handle_escape()
                 continue
 
+            # Ctrl+S — save game (only when in-game)
+            if (
+                event.type == pygame.KEYDOWN
+                and event.key == pygame.K_s
+                and (event.mod & pygame.KMOD_CTRL)
+                and self.fleet and self.galaxy
+            ):
+                path = save_game(self.fleet, self.galaxy, self.mothership_systems, self.quest_state)
+                self._save_msg = f"Game saved to {path}"
+                self._save_msg_timer = 2.5
+                continue
+
             # Route to active screen
             if self.state == GameState.TITLE:
                 self.title_screen.handle_events(event)
@@ -119,6 +138,8 @@ class Game:
                 self.formation_screen.handle_events(event)
             elif self.state == GameState.CAPTAINS_LOG and self.captains_log_screen:
                 self.captains_log_screen.handle_events(event)
+            elif self.state == GameState.CREDITS and self.credits_screen:
+                self.credits_screen.handle_events(event)
             elif self.state == GameState.GAME_OVER:
                 if event.type == pygame.KEYDOWN:
                     self.running = False
@@ -143,15 +164,40 @@ class Game:
             pass  # Can't escape from event
         elif self.state == GameState.CAPTAINS_LOG:
             self.state = GameState.STAR_MAP
+        elif self.state == GameState.CREDITS:
+            self.state = GameState.TITLE
+            self.title_screen = TitleScreen()
 
     def _update(self, dt: float) -> None:
         self.starfield.update(dt)
 
+        # Save feedback timer
+        if self._save_msg_timer > 0:
+            self._save_msg_timer -= dt
+            if self._save_msg_timer <= 0:
+                self._save_msg = ""
+
         if self.state == GameState.TITLE:
             self.title_screen.update(dt)
             if self.title_screen.next_state:
-                self.state = self.title_screen.next_state
+                next_s = self.title_screen.next_state
                 self.title_screen.next_state = None
+
+                if next_s == GameState.CREDITS:
+                    self.credits_screen = CreditsScreen()
+                    self.state = GameState.CREDITS
+                elif self.title_screen.load_save:
+                    self.title_screen.load_save = False
+                    result = load_game()
+                    if result:
+                        self.fleet, self.galaxy, self.mothership_systems, self.quest_state = result
+                        self.star_map_screen = StarMapScreen(self.galaxy)
+                        self.state = GameState.STAR_MAP
+                    else:
+                        # Save corrupted — fall through to ship select
+                        self.state = GameState.SHIP_SELECT
+                else:
+                    self.state = next_s
 
         elif self.state == GameState.SHIP_SELECT:
             self.ship_select_screen.update(dt)
@@ -182,8 +228,6 @@ class Game:
             if self.star_map_screen.next_state:
                 if self.star_map_screen.next_state == GameState.CAPTAINS_LOG:
                     self.captains_log_screen = CaptainsLogScreen(self.quest_state)
-                    self.state = GameState.CAPTAINS_LOG
-                    self.star_map_screen.next_state = None
                 elif self.star_map_screen.next_state == GameState.SYSTEM_VIEW:
                     self.system_view_screen = SystemViewScreen(
                         self.galaxy, self.fleet, self.quest_state,
@@ -238,6 +282,7 @@ class Game:
                         f"{self._cryosleep_colonist_loss:,} colonists lost during transit.{destroyed_note}",
                         "ftl",
                     )
+                    self._auto_save()
 
                 elif self.star_map_screen.next_state == GameState.MOTHERSHIP:
                     initial_tab = "fleet" if getattr(self.star_map_screen, 'open_fleet_tab', False) else "systems"
@@ -287,6 +332,7 @@ class Game:
                     "The engagement has ended. Fleet survives." if won else "Heavy losses sustained.",
                     "combat",
                 )
+                self._auto_save()
 
         elif self.state == GameState.EVENT_DIALOG and self.event_dialog_screen:
             self.event_dialog_screen.update(dt)
@@ -320,6 +366,7 @@ class Game:
                     self.state = GameState.SYSTEM_VIEW
                 self.event_dialog_screen = None
                 self._check_game_over()
+                self._auto_save()
 
         elif self.state == GameState.MOTHERSHIP and self.mothership_screen:
             self.mothership_screen.update(dt)
@@ -347,6 +394,13 @@ class Game:
             if self.captains_log_screen.next_state:
                 self.state = self.captains_log_screen.next_state
                 self.captains_log_screen.next_state = None
+
+        elif self.state == GameState.CREDITS and self.credits_screen:
+            self.credits_screen.update(dt)
+            if self.credits_screen.next_state:
+                self.state = GameState.TITLE
+                self.title_screen = TitleScreen()
+                self.credits_screen = None
 
         elif self.state == GameState.GAME_OVER:
             self._game_over_timer += dt
@@ -389,19 +443,40 @@ class Game:
                 self.hud.draw(self.screen, self.fleet)
         elif self.state == GameState.CAPTAINS_LOG and self.captains_log_screen:
             self.captains_log_screen.draw(self.screen)
+        elif self.state == GameState.CREDITS and self.credits_screen:
+            self.credits_screen.draw(self.screen)
         elif self.state == GameState.GAME_OVER:
             self._draw_game_over()
 
         pygame.display.flip()
 
+        # Save feedback overlay (drawn after flip to appear on next frame)
+        if self._save_msg:
+            font = pygame.font.Font(None, 24)
+            msg_surf = font.render(self._save_msg, True, HULL_GREEN)
+            bg = pygame.Surface((msg_surf.get_width() + 20, msg_surf.get_height() + 10), pygame.SRCALPHA)
+            bg.fill((0, 0, 0, 180))
+            x = SCREEN_WIDTH - bg.get_width() - 10
+            y = 10
+            self.screen.blit(bg, (x, y))
+            self.screen.blit(msg_surf, (x + 10, y + 5))
+            pygame.display.update(pygame.Rect(x, y, bg.get_width(), bg.get_height()))
+
     # ------------------------------------------------------------------
     # Star map keybinds hint
     # ------------------------------------------------------------------
 
+    def _auto_save(self) -> None:
+        """Auto-save at key gameplay checkpoints."""
+        if self.fleet and self.galaxy:
+            save_game(self.fleet, self.galaxy, self.mothership_systems, self.quest_state)
+            self._save_msg = "Auto-saved"
+            self._save_msg_timer = 1.5
+
     def _draw_star_map_hints(self) -> None:
         """Show keybind hints for star map screens."""
         font = pygame.font.Font(None, 22)
-        hint = font.render("TAB — Mothership    F — Fleet    L — Captain's Log", True, LIGHT_GREY)
+        hint = font.render("TAB — Mothership    F — Fleet    L — Log    Ctrl+S — Save", True, LIGHT_GREY)
         self.screen.blit(hint, (10, SCREEN_HEIGHT - 25))
 
     def _draw_cryosleep_overlay(self) -> None:

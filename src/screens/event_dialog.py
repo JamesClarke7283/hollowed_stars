@@ -171,15 +171,35 @@ class EventDialogScreen:
 
     def _apply_outcome(self, outcome: EventOutcome) -> None:
         """Apply outcome effects to the player fleet."""
+
+        # Colony establishment requires explicit resource+colonist check
+        if outcome.outcome_type == EventOutcomeType.ESTABLISH_COLONY:
+            can_afford = (
+                self.fleet.colonists >= abs(outcome.colonists)
+                and self.fleet.resources.metal >= abs(outcome.metal)
+                and self.fleet.resources.energy >= abs(outcome.energy)
+            )
+            if not can_afford:
+                # Override outcome — player cannot pay
+                self.outcome = EventOutcome(
+                    EventOutcomeType.NOTHING,
+                    "You lack the resources for such an undertaking. "
+                    f"Colony requires {abs(outcome.colonists):,} colonists, "
+                    f"{abs(outcome.metal):,} metal, and {abs(outcome.energy):,} energy.",
+                )
+                return
+            # Deduct resources (colonists field is negative, metal/energy are negative)
+            self.fleet.colonists += outcome.colonists
+            self.fleet.resources.metal += outcome.metal
+            self.fleet.resources.energy += outcome.energy
+            self.colony_established = True
+            return
+
         self.fleet.resources.metal += outcome.metal
         self.fleet.resources.energy += outcome.energy
         self.fleet.resources.rare_materials += outcome.rare
         self.fleet.colonists += outcome.colonists
         self.fleet.mothership.hull += outcome.hull_change
-
-        # Detect colony establishment (colonists sent to settle)
-        if outcome.colonists < 0 and "colony" in outcome.description.lower():
-            self.colony_established = True
 
         # Track quest flag for game.py to process
         if outcome.quest_flag:
@@ -204,6 +224,7 @@ class EventDialogScreen:
             EventOutcomeType.COMBAT: RED_ALERT,
             EventOutcomeType.QUEST_FLAG: AMBER,
             EventOutcomeType.NOTHING: LIGHT_GREY,
+            EventOutcomeType.ESTABLISH_COLONY: HULL_GREEN,
         }
         return colors.get(outcome_type, WHITE)
 
@@ -228,6 +249,8 @@ class EventDialogScreen:
             rewards.append((f"{outcome.hull_change} Hull", RED_ALERT))
         if outcome.outcome_type == EventOutcomeType.COMBAT:
             rewards.append(("⚔ Combat incoming!", RED_ALERT))
+        if outcome.outcome_type == EventOutcomeType.ESTABLISH_COLONY:
+            rewards.append(("🏠 Colony established!", HULL_GREEN))
         return rewards
 
     def _wrap_text(self, text: str, font: pygame.font.Font, max_width: int) -> list[str]:

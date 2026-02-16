@@ -64,12 +64,24 @@ class LoreEntry:
 
 
 @dataclass
+class LogEntry:
+    """A captain's log entry recording an in-game event."""
+
+    turn: int
+    title: str
+    text: str
+    category: str = "event"  # "event", "combat", "exploration", "ftl", "lore"
+
+
+@dataclass
 class QuestState:
     """Tracks quest progression and discovered lore."""
 
     flags: set[QuestFlag] = field(default_factory=set)
     lore_entries: list[LoreEntry] = field(default_factory=list)
+    log_entries: list[LogEntry] = field(default_factory=list)
     colonies_established: int = 0
+    turn: int = 0
 
     def set_flag(self, flag: QuestFlag) -> None:
         self.flags.add(flag)
@@ -81,6 +93,22 @@ class QuestState:
         if entry.quest_flag not in self.flags:
             self.lore_entries.append(entry)
             self.flags.add(entry.quest_flag)
+            self.add_log(LogEntry(
+                turn=self.turn,
+                title=f"Lore: {entry.title}",
+                text=entry.text,
+                category="lore",
+            ))
+
+    def add_log(self, entry: LogEntry) -> None:
+        """Record an event in the captain's log."""
+        self.log_entries.append(entry)
+
+    def log_event(self, title: str, text: str, category: str = "event") -> None:
+        """Convenience: log a game event."""
+        self.add_log(LogEntry(
+            turn=self.turn, title=title, text=text, category=category,
+        ))
 
     @property
     def can_reach_earth(self) -> bool:
@@ -107,7 +135,7 @@ class QuestState:
             return EndingType.FLEET_DESTROYED
         if colonists < 15_000:
             return EndingType.COLONIST_COLLAPSE
-        if self.colonies_established >= 3:
+        if self.colonies_established >= 5:
             return EndingType.COLONY_SUCCESS
         return None
 

@@ -21,7 +21,7 @@ from ..constants import (
     WHITE,
 )
 from ..models.events import Event, get_event_for_object_type, get_quest_event
-from ..models.galaxy import Galaxy, ObjectType, StarSystem, SystemObject
+from ..models.galaxy import Galaxy, ObjectType, PlanetSubtype, StarSystem, SystemObject
 from ..models.quest import QuestFlag, QuestState
 from ..models.ships import Fleet
 from ..states import GameState
@@ -37,6 +37,58 @@ _OBJECT_COLORS: dict[ObjectType, tuple[int, int, int]] = {
     ObjectType.ALIEN_OUTPOST: (60, 200, 120),
 }
 
+# Planet subtype colors for richer visual differentiation
+_PLANET_SUBTYPE_COLORS: dict[str, tuple[int, int, int]] = {
+    "Settled": (220, 160, 40),   # Gold — inhabited/trade
+    "Alien Colony": (220, 160, 40),
+    "Populous": (220, 160, 40),
+    "Trade Hub": (220, 160, 40),
+    "Fortified": (200, 60, 60),   # Red — militaristic inhabited
+    "Alien Homeworld": (200, 60, 60),
+    "Garden": (60, 200, 80),     # Green — habitable
+    "Temperate": (60, 200, 80),
+    "Green": (60, 200, 80),
+    "Earthlike": (60, 200, 80),
+    "Verdant": (60, 200, 80),
+    "Paradise": (60, 200, 80),
+    "Gas Giant": (200, 160, 100), # Tan — gas giants
+    "Jovian": (200, 160, 100),
+    "Ringed": (200, 160, 100),
+    "Storm": (200, 160, 100),
+    "Hydrogen": (200, 160, 100),
+    "Frozen": (140, 200, 240),    # Ice blue — frozen
+    "Ice": (140, 200, 240),
+    "Glacial": (140, 200, 240),
+    "Cryo": (140, 200, 240),
+    "Permafrost": (140, 200, 240),
+    "Volcanic": (220, 80, 30),    # Orange — volcanic
+    "Molten": (220, 80, 30),
+    "Magma": (220, 80, 30),
+    "Tectonic": (220, 80, 30),
+    "Cinder": (220, 80, 30),
+    "Acid": (180, 220, 50),       # Yellow-green — toxic
+    "Toxic": (180, 220, 50),
+    "Chemical": (180, 220, 50),
+    "Corrosive": (180, 220, 50),
+    "Venomous": (180, 220, 50),
+    "Ocean": (40, 120, 220),      # Blue — ocean
+    "Water": (40, 120, 220),
+    "Deep Sea": (40, 120, 220),
+    "Tidal": (40, 120, 220),
+    "Archipelago": (40, 120, 220),
+    "Shattered": (140, 100, 80),  # Dark brown — shattered
+    "Broken": (140, 100, 80),
+    "Debris Field": (140, 100, 80),
+    "Fractured": (140, 100, 80),
+    "Sundered": (140, 100, 80),
+    "Barren": (120, 110, 100),    # Grey — barren
+    "Dust": (120, 110, 100),
+    "Dead": (120, 110, 100),
+    "Grey Moon": (120, 110, 100),
+    "Airless": (120, 110, 100),
+    "Cratered": (120, 110, 100),
+}
+
 _OBJECT_ICONS: dict[ObjectType, str] = {
     ObjectType.PLANET: "●",
     ObjectType.ASTEROID_FIELD: "◆",
@@ -45,6 +97,19 @@ _OBJECT_ICONS: dict[ObjectType, str] = {
     ObjectType.STATION_RUIN: "▤",
     ObjectType.ALIEN_OUTPOST: "▲",
 }
+
+
+def _planet_color(name: str) -> tuple[int, int, int]:
+    """Get the display color for a planet based on its name's first word."""
+    first_word = name.split()[0]
+    if first_word in _PLANET_SUBTYPE_COLORS:
+        return _PLANET_SUBTYPE_COLORS[first_word]
+    # Also try first two words for compound names
+    if " " in name:
+        two_words = " ".join(name.split()[:2])
+        if two_words in _PLANET_SUBTYPE_COLORS:
+            return _PLANET_SUBTYPE_COLORS[two_words]
+    return _OBJECT_COLORS[ObjectType.PLANET]
 
 
 class SystemViewScreen:
@@ -166,12 +231,20 @@ class SystemViewScreen:
         ox = self.center_x + int(math.cos(obj.orbit_angle) * obj.orbit_radius * scale)
         oy = self.center_y + int(math.sin(obj.orbit_angle) * obj.orbit_radius * scale)
 
-        color = _OBJECT_COLORS.get(obj.obj_type, WHITE)
+        # Planets use subtype-specific colors; others use the general mapping
+        if obj.obj_type == ObjectType.PLANET:
+            color = _planet_color(obj.name)
+        else:
+            color = _OBJECT_COLORS.get(obj.obj_type, WHITE)
+
         is_hovered = obj is self.hovered_object
         is_selected = obj is self.selected_object
 
-        # Object dot
-        radius = 8 if is_hovered else 6
+        # Object dot — planets are slightly larger
+        if obj.obj_type == ObjectType.PLANET:
+            radius = 10 if is_hovered else 8
+        else:
+            radius = 8 if is_hovered else 6
         pygame.draw.circle(surface, color, (ox, oy), radius)
 
         if is_selected:

@@ -14,7 +14,7 @@ class GameState(enum.Enum):
     COMBAT = "combat"
     EVENT_DIALOG = "event_dialog"
     MOTHERSHIP = "mothership"
-    FLEET_MANAGEMENT = "fleet_management"
+    CAPTAINS_LOG = "captains_log"
     GAME_OVER = "game_over"
 
 

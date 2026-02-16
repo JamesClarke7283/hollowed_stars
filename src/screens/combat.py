@@ -145,6 +145,9 @@ class CombatScreen:
         self._phase_guide = ""
         self._phase_guide_timer = 0.0
 
+        # Laser PD mode toggle (per PLAN.md)
+        self.laser_pd_active = False
+
         # Setup phase: auto-advance to approach
         if self.engine.phase == CombatPhase.SETUP:
             events = self.engine.advance_turn()
@@ -179,6 +182,10 @@ class CombatScreen:
             if self.engine.phase == CombatPhase.APPROACH:
                 # Retreat: take some damage and leave
                 self._retreat()
+
+        # Laser PD mode toggle
+        elif key == pygame.K_p:
+            self._toggle_laser_pd()
 
     def update(self, dt: float) -> None:
         self.timer += dt
@@ -295,6 +302,29 @@ class CombatScreen:
     def _set_phase_guide(self, text: str) -> None:
         self._phase_guide = text
         self._phase_guide_timer = 6.0
+
+    def _toggle_laser_pd(self) -> None:
+        """Toggle laser weapons into/out of point-defense mode.
+
+        When active, lasers with pd_mode_available stop firing offensively
+        and instead provide PD charges each turn.
+        """
+        self.laser_pd_active = not self.laser_pd_active
+
+        # Update can_target_missiles on all player laser weapons
+        count = 0
+        for ship in self.engine.player_ships:
+            if not ship.is_alive:
+                continue
+            for wpn in ship.weapons:
+                if wpn.pd_mode_available:
+                    wpn.can_target_missiles = self.laser_pd_active
+                    count += 1
+
+        if self.laser_pd_active:
+            self._set_phase_guide(f"LASER PD MODE ON — {count} laser(s) now intercepting missiles!")
+        else:
+            self._set_phase_guide(f"LASER PD MODE OFF — {count} laser(s) firing offensively.")
 
     # ------------------------------------------------------------------
     # Phase header
@@ -597,11 +627,12 @@ class CombatScreen:
         """Draw keybind hints at the very bottom."""
         hints: list[str] = []
         if self.engine.phase == CombatPhase.APPROACH:
-            hints = ["SPACE — Close distance", "R — Retreat"]
+            hints = ["SPACE — Close distance", "R — Retreat", "P — Laser PD"]
         elif self.engine.phase == CombatPhase.ENGAGEMENT:
-            hints = ["A/D — Select target", "SPACE — Fire all weapons"]
+            pd_status = "ON" if self.laser_pd_active else "OFF"
+            hints = ["A/D — Select target", "SPACE — Fire all weapons", f"P — Laser PD [{pd_status}]"]
         elif self.engine.phase == CombatPhase.DISENGAGE:
-            hints = ["SPACE — Re-approach"]
+            hints = ["SPACE — Re-approach", "P — Laser PD"]
 
         if hints:
             hint_text = "  |  ".join(hints)

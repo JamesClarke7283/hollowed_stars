@@ -92,6 +92,22 @@ class ShipSystem:
         energy = int(amount * 3 * self.upgrade_tier)
         return {"metal": metal, "energy": energy}
 
+    def upgrade_cost(self) -> dict[str, int] | None:
+        """Calculate resource cost to upgrade to next tier. None if max."""
+        if self.upgrade_tier >= 5:
+            return None
+        next_tier = self.upgrade_tier + 1
+        return {
+            "metal": 500 * next_tier,
+            "energy": 300 * next_tier,
+            "rare": 100 * next_tier,
+        }
+
+    def upgrade(self) -> None:
+        """Upgrade to the next tier (costs checked externally)."""
+        if self.upgrade_tier < 5:
+            self.upgrade_tier += 1
+
     @property
     def is_critical(self) -> bool:
         return self.maintenance_level < 25

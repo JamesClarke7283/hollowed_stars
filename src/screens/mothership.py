@@ -71,7 +71,7 @@ BUILDABLE_CLASSES = [
 class MothershipScreen:
     """Mothership management — tabbed between systems and fleet."""
 
-    def __init__(self, fleet: Fleet, systems: list[ShipSystem]) -> None:
+    def __init__(self, fleet: Fleet, systems: list[ShipSystem], initial_tab: str = "systems") -> None:
         self.fleet = fleet
         self.systems = systems
         self.font_title = pygame.font.Font(None, 40)
@@ -81,7 +81,7 @@ class MothershipScreen:
         self.font_small = pygame.font.Font(None, 22)
 
         # Tab state: "systems" or "fleet"
-        self.active_tab = "systems"
+        self.active_tab = initial_tab
 
         # --- Systems tab ---
         self.selected_index = 0
@@ -94,11 +94,12 @@ class MothershipScreen:
         self._message_color = WHITE
 
         # --- Fleet tab ---
-        self.fleet_mode = "list"  # "list", "build", "equip"
+        self.fleet_mode = "list"  # "list", "build", "equip", "craft"
         self.fleet_ship_idx = 0
         self.build_cursor = 0
         self.equip_slot_idx = 0
         self.equip_weapon_idx = 0
+        self.craft_cursor = 0
 
     # ------------------------------------------------------------------
     # Events
@@ -128,12 +129,55 @@ class MothershipScreen:
                 self._handle_fleet(event.key)
 
     def _handle_systems(self, key: int) -> None:
-        if key in (pygame.K_UP, pygame.K_w):
-            self.selected_index = max(0, self.selected_index - 1)
-        elif key in (pygame.K_DOWN, pygame.K_s):
-            self.selected_index = min(len(self.systems) - 1, self.selected_index + 1)
+        if key in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s,
+                   pygame.K_LEFT, pygame.K_a, pygame.K_RIGHT, pygame.K_d):
+            self._navigate_systems_grid(key)
         elif key in (pygame.K_RETURN, pygame.K_SPACE):
             self._repair_selected()
+        elif key == pygame.K_u:
+            self._upgrade_selected()
+
+    def _navigate_systems_grid(self, key: int) -> None:
+        """Navigate the systems cross-section using 2D grid positions."""
+        current = self.systems[self.selected_index]
+        cx, cy = _SYSTEM_POSITIONS.get(current.system_type, (0, 0))
+
+        # Determine direction
+        if key in (pygame.K_UP, pygame.K_w):
+            dx, dy = 0, -1
+        elif key in (pygame.K_DOWN, pygame.K_s):
+            dx, dy = 0, 1
+        elif key in (pygame.K_LEFT, pygame.K_a):
+            dx, dy = -1, 0
+        else:
+            dx, dy = 1, 0
+
+        # Find closest system in the pressed direction
+        best_idx = None
+        best_dist = float("inf")
+        for i, sys in enumerate(self.systems):
+            if i == self.selected_index:
+                continue
+            sx, sy = _SYSTEM_POSITIONS.get(sys.system_type, (i % 3, i // 3))
+            off_x, off_y = sx - cx, sy - cy
+
+            # Must be in the correct direction
+            if dy < 0 and off_y >= 0:
+                continue
+            if dy > 0 and off_y <= 0:
+                continue
+            if dx < 0 and off_x >= 0:
+                continue
+            if dx > 0 and off_x <= 0:
+                continue
+
+            dist = abs(off_x) + abs(off_y)
+            if dist < best_dist:
+                best_dist = dist
+                best_idx = i
+
+        if best_idx is not None:
+            self.selected_index = best_idx
 
     def _handle_fleet(self, key: int) -> None:
         if self.fleet_mode == "list":
@@ -142,6 +186,8 @@ class MothershipScreen:
             self._handle_fleet_build(key)
         elif self.fleet_mode == "equip":
             self._handle_fleet_equip(key)
+        elif self.fleet_mode == "craft":
+            self._handle_fleet_craft(key)
 
     def _handle_fleet_list(self, key: int) -> None:
         ships = self.fleet.ships
@@ -172,6 +218,9 @@ class MothershipScreen:
             self._message = f"Scrapped — resources recovered"
             self._message_color = AMBER
             self._message_timer = 2.0
+        elif key == pygame.K_w:
+            self.fleet_mode = "craft"
+            self.craft_cursor = 0
 
     def _handle_fleet_build(self, key: int) -> None:
         if key in (pygame.K_UP, pygame.K_w):
@@ -216,6 +265,41 @@ class MothershipScreen:
             self.equip_weapon_idx = (self.equip_weapon_idx + 1) % len(available)
         elif key in (pygame.K_RETURN, pygame.K_SPACE) and available:
             wpn = available[self.equip_weapon_idx]
+            # Check inventory first (free equip from stockpile)
+            if wpn.name in self.fleet.weapon_inventory:
+                self.fleet.weapon_inventory.remove(wpn.name)
+                slot.equipped = wpn.name
+                self._message = f"Equipped {wpn.name} (from inventory)"
+                self._message_color = HULL_GREEN
+                self._message_timer = 2.0
+            else:
+                # Direct-craft equip: pay resources on the spot
+                r = self.fleet.resources
+                if (r.metal >= wpn.build_cost_metal
+                        and r.energy >= wpn.build_cost_energy
+                        and r.rare_materials >= wpn.build_cost_rare):
+                    r.metal -= wpn.build_cost_metal
+                    r.energy -= wpn.build_cost_energy
+                    r.rare_materials -= wpn.build_cost_rare
+                    slot.equipped = wpn.name
+                    self._message = f"Built & equipped {wpn.name}"
+                    self._message_color = HULL_GREEN
+                    self._message_timer = 2.0
+                else:
+                    self._message = "Not enough resources! Craft first (W) or pay here."
+                    self._message_color = RED_ALERT
+                    self._message_timer = 2.5
+        elif key == pygame.K_ESCAPE:
+            self.fleet_mode = "list"
+
+    def _handle_fleet_craft(self, key: int) -> None:
+        """Craft weapons into the fleet's weapon inventory."""
+        if key in (pygame.K_UP, pygame.K_w):
+            self.craft_cursor = (self.craft_cursor - 1) % len(CRAFTABLE_WEAPONS)
+        elif key in (pygame.K_DOWN, pygame.K_s):
+            self.craft_cursor = (self.craft_cursor + 1) % len(CRAFTABLE_WEAPONS)
+        elif key in (pygame.K_RETURN, pygame.K_SPACE):
+            wpn = CRAFTABLE_WEAPONS[self.craft_cursor]
             r = self.fleet.resources
             if (r.metal >= wpn.build_cost_metal
                     and r.energy >= wpn.build_cost_energy
@@ -223,8 +307,8 @@ class MothershipScreen:
                 r.metal -= wpn.build_cost_metal
                 r.energy -= wpn.build_cost_energy
                 r.rare_materials -= wpn.build_cost_rare
-                slot.equipped = wpn.name
-                self._message = f"Equipped {wpn.name}"
+                self.fleet.weapon_inventory.append(wpn.name)
+                self._message = f"Crafted {wpn.name} → inventory"
                 self._message_color = HULL_GREEN
                 self._message_timer = 2.0
             else:
@@ -299,13 +383,15 @@ class MothershipScreen:
 
     def _draw_hints(self, surface: pygame.Surface) -> None:
         if self.active_tab == "systems":
-            hint = "W/S select  |  ENTER repair  |  TAB→Fleet  |  ESC back"
+            hint = "Arrows navigate  |  ENTER repair  |  U upgrade  |  TAB→Fleet  |  ESC back"
         elif self.fleet_mode == "list":
-            hint = "W/S select  |  B build  |  E equip  |  X scrap  |  TAB→Systems  |  ESC back"
+            hint = "W/S select  |  B build  |  E equip  |  X scrap  |  W craft wpn  |  TAB→Systems  |  ESC"
         elif self.fleet_mode == "build":
             hint = "W/S select  |  ENTER build  |  ESC cancel"
         elif self.fleet_mode == "equip":
             hint = "W/S slot  |  A/D weapon  |  ENTER equip  |  ESC cancel"
+        elif self.fleet_mode == "craft":
+            hint = "W/S select  |  ENTER craft to inventory  |  ESC cancel"
         else:
             hint = ""
         surf = self.font_small.render(hint, True, LIGHT_GREY)
@@ -449,7 +535,23 @@ class MothershipScreen:
         )
         cost_color = HULL_GREEN if can_afford else RED_ALERT
         cost_surf = self.font_small.render(cost_text, True, cost_color)
-        surface.blit(cost_surf, (panel_x + 10, panel_y + panel_h - 22))
+        surface.blit(cost_surf, (panel_x + 10, panel_y + panel_h - 40))
+
+        # Upgrade cost
+        upgrade = system.upgrade_cost()
+        if upgrade:
+            u_text = f"Upgrade (U): {upgrade['metal']}M {upgrade['energy']}E {upgrade['rare']}R"
+            u_afford = (
+                self.fleet.resources.metal >= upgrade["metal"]
+                and self.fleet.resources.energy >= upgrade["energy"]
+                and self.fleet.resources.rare_materials >= upgrade["rare"]
+            )
+            u_color = HULL_GREEN if u_afford else RED_ALERT
+            u_surf = self.font_small.render(u_text, True, u_color)
+            surface.blit(u_surf, (panel_x + 10, panel_y + panel_h - 22))
+        else:
+            max_surf = self.font_small.render("Max tier reached", True, AMBER)
+            surface.blit(max_surf, (panel_x + 10, panel_y + panel_h - 22))
 
     def _repair_selected(self) -> None:
         if self.selected_index >= len(self.systems):
@@ -475,6 +577,33 @@ class MothershipScreen:
             self._message_color = RED_ALERT
             self._message_timer = 2.0
 
+    def _upgrade_selected(self) -> None:
+        if self.selected_index >= len(self.systems):
+            return
+        system = self.systems[self.selected_index]
+        cost = system.upgrade_cost()
+        if cost is None:
+            self._message = f"{system.name} is already at max tier."
+            self._message_color = AMBER
+            self._message_timer = 2.0
+            return
+
+        r = self.fleet.resources
+        if (r.metal >= cost["metal"]
+                and r.energy >= cost["energy"]
+                and r.rare_materials >= cost["rare"]):
+            r.metal -= cost["metal"]
+            r.energy -= cost["energy"]
+            r.rare_materials -= cost["rare"]
+            system.upgrade()
+            self._message = f"Upgraded {system.name} to tier {system.upgrade_tier}!"
+            self._message_color = HULL_GREEN
+            self._message_timer = 2.5
+        else:
+            self._message = "Not enough resources for upgrade!"
+            self._message_color = RED_ALERT
+            self._message_timer = 2.0
+
     # ------------------------------------------------------------------
     # FLEET TAB
     # ------------------------------------------------------------------
@@ -490,6 +619,8 @@ class MothershipScreen:
             self._draw_build_menu(surface)
         elif self.fleet_mode == "equip":
             self._draw_equip_menu(surface)
+        elif self.fleet_mode == "craft":
+            self._draw_craft_menu(surface)
 
     def _draw_resource_bar(self, surface: pygame.Surface) -> None:
         y = 95
@@ -498,6 +629,7 @@ class MothershipScreen:
             (f"Energy: {self.fleet.resources.energy:,}", ENERGY_COLOR),
             (f"Rare: {self.fleet.resources.rare_materials:,}", RARE_COLOR),
             (f"Ships: {self.fleet.total_ships}/{self.fleet.mothership.hangar_capacity}", CYAN),
+            (f"Wpn Inv: {len(self.fleet.weapon_inventory)}", AMBER),
         ]
         x = 30
         for text, color in items:
@@ -686,3 +818,51 @@ class MothershipScreen:
                     y += 46
             else:
                 y += 24
+
+    def _draw_craft_menu(self, surface: pygame.Surface) -> None:
+        """Draw the weapon crafting menu."""
+        x, y0 = 60, 120
+        header = self.font_name.render("CRAFT WEAPONS", True, AMBER)
+        surface.blit(header, (x, y0))
+
+        inv_text = f"Inventory: {len(self.fleet.weapon_inventory)} weapon(s)"
+        inv_surf = self.font_info.render(inv_text, True, CYAN)
+        surface.blit(inv_surf, (x + 240, y0 + 4))
+
+        y = y0 + 35
+        for i, wpn in enumerate(CRAFTABLE_WEAPONS):
+            selected = i == self.craft_cursor
+            r = self.fleet.resources
+            can_afford = (
+                r.metal >= wpn.build_cost_metal
+                and r.energy >= wpn.build_cost_energy
+                and r.rare_materials >= wpn.build_cost_rare
+            )
+
+            if selected:
+                pygame.draw.rect(surface, (30, 50, 80), (x - 5, y - 2, 850, 24), border_radius=3)
+
+            name_color = WHITE if selected and can_afford else AMBER if can_afford else RED_ALERT
+            name_surf = self.font_small.render(wpn.name, True, name_color)
+            surface.blit(name_surf, (x, y))
+
+            size_label = f"[{wpn.size.upper()}]"
+            size_surf = self.font_small.render(size_label, True, LIGHT_GREY)
+            surface.blit(size_surf, (x + 180, y))
+
+            cost_text = f"M:{wpn.build_cost_metal} E:{wpn.build_cost_energy} R:{wpn.build_cost_rare}"
+            cost_color = LIGHT_GREY if can_afford else (80, 50, 50)
+            cost_surf = self.font_small.render(cost_text, True, cost_color)
+            surface.blit(cost_surf, (x + 260, y))
+
+            stat_text = f"DMG:{wpn.damage} ACC:{int(wpn.accuracy * 100)}%"
+            stat_surf = self.font_small.render(stat_text, True, LIGHT_GREY)
+            surface.blit(stat_surf, (x + 520, y))
+
+            # Show inventory count for this weapon
+            count = self.fleet.weapon_inventory.count(wpn.name)
+            if count > 0:
+                cnt_surf = self.font_small.render(f"x{count}", True, HULL_GREEN)
+                surface.blit(cnt_surf, (x + 700, y))
+
+            y += 24

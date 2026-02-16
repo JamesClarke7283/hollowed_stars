@@ -24,6 +24,7 @@ class EventOutcomeType(enum.Enum):
     HULL_DAMAGE = "hull_damage"
     HULL_REPAIR = "hull_repair"
     QUEST_FLAG = "quest_flag"
+    ESTABLISH_COLONY = "establish_colony"
 
 
 @dataclass
@@ -326,29 +327,38 @@ def _planet_events() -> list[Event]:
             title="Habitable World",
             description=(
                 "Against all odds, this world has a breathable atmosphere and liquid water. "
-                "It could support a small colony... but is it safe?"
+                "Establishing a permanent colony here would be a monumental undertaking — "
+                "requiring 100,000 colonists, 2,000 metal for infrastructure, and 1,000 energy "
+                "for power systems. But it could mean the survival of our species beyond the Mothership."
             ),
             choices=[
                 EventChoice(
-                    "Establish a colony",
+                    "Establish a colony (100k colonists, 2000M, 1000E)",
                     EventOutcome(
-                        EventOutcomeType.GAIN_LORE,
-                        "A beacon of hope. You leave behind 10,000 colonists to start anew.",
+                        EventOutcomeType.ESTABLISH_COLONY,
+                        "Months of work. Prefab habitats unfold across the plains. Water treatment, "
+                        "power generation, agricultural domes — everything needed for self-sufficiency. "
+                        "100,000 of your people will wake from cryosleep to build a new civilisation here.",
                         lore_text="Colony established. Humanity endures in more than one place now.",
-                        colonists=-10000,
+                        colonists=-100_000,
+                        metal=-2000,
+                        energy=-1000,
                     ),
                 ),
                 EventChoice(
-                    "Harvest resources only",
+                    "Survey and harvest resources",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "You gather water, organic materials, and rare minerals.",
-                        metal=200, energy=300, rare=60,
+                        "You send down survey teams to gather what you can without committing to a full colony.",
+                        metal=300, energy=400, rare=80,
                     ),
                 ),
                 EventChoice(
-                    "Mark location and continue",
-                    EventOutcome(EventOutcomeType.NOTHING, "Perhaps you'll return someday."),
+                    "Mark coordinates and continue",
+                    EventOutcome(
+                        EventOutcomeType.NOTHING,
+                        "The coordinates are logged. Perhaps someday, when you have the resources...",
+                    ),
                 ),
             ],
         ),

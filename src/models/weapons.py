@@ -460,3 +460,12 @@ FEDERATION_WEAPONS: list[Weapon] = [w for w in ALL_WEAPONS if not w.can_be_craft
 def weapons_for_size(size: str) -> list[Weapon]:
     """Get all craftable weapons that fit a given mount size."""
     return [w for w in CRAFTABLE_WEAPONS if w.size == size]
+
+
+# Name → Weapon mapping for quick lookup (used by combat engine)
+_WEAPON_BY_NAME: dict[str, Weapon] = {w.name: w for w in ALL_WEAPONS}
+
+
+def weapon_by_name(name: str) -> Weapon | None:
+    """Look up a weapon definition by its name string."""
+    return _WEAPON_BY_NAME.get(name)

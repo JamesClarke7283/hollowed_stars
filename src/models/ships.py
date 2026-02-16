@@ -191,6 +191,7 @@ class Fleet:
     ships: list[FleetShip] = field(default_factory=list)
     resources: Resources = field(default_factory=Resources)
     colonists: int = 1_000_000
+    weapon_inventory: list[str] = field(default_factory=list)  # Crafted weapon names
 
     @property
     def total_ships(self) -> int:

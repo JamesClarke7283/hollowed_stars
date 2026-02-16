@@ -26,6 +26,7 @@ from .weapons import (
     RAILGUN_MEDIUM,
     PD_CANNON_SMALL,
     LASER_MEDIUM,
+    weapon_by_name,
     weapons_for_size,
 )
 
@@ -151,7 +152,7 @@ class CombatEngine:
         ms = self.player_fleet.mothership
         mothership_weapons = []
         for slot in ms.weapon_slots:
-            mothership_weapons.append(self._default_weapon_for_size(slot.size.value))
+            mothership_weapons.append(self._resolve_weapon(slot.equipped, slot.size.value))
 
         ships.append(CombatShip(
             name=ms.name,
@@ -171,7 +172,7 @@ class CombatEngine:
             # Build weapons from equipped slots
             ship_weapons: list[Weapon] = []
             for slot in fs.weapon_slots:
-                ship_weapons.append(self._default_weapon_for_size(slot.size.value))
+                ship_weapons.append(self._resolve_weapon(slot.equipped, slot.size.value))
             ships.append(CombatShip(
                 name=fs.name,
                 ship_class=fs.ship_class,
@@ -185,6 +186,14 @@ class CombatEngine:
             ))
 
         return ships
+
+    def _resolve_weapon(self, equipped_name: str | None, size: str) -> Weapon:
+        """Resolve an equipped weapon name to a Weapon, falling back to default."""
+        if equipped_name:
+            wpn = weapon_by_name(equipped_name)
+            if wpn is not None:
+                return wpn
+        return self._default_weapon_for_size(size)
 
     def _default_weapon_for_size(self, size: str) -> Weapon:
         """Get a default weapon for a mount size."""

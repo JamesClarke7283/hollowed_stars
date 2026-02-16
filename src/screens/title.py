@@ -11,6 +11,7 @@ from ..constants import (
     CYAN,
     GAME_SUBTITLE,
     GAME_TITLE,
+    GAME_VERSION,
     LIGHT_GREY,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
@@ -25,6 +26,7 @@ class TitleScreen:
         self.font_large = pygame.font.Font(None, 96)
         self.font_medium = pygame.font.Font(None, 48)
         self.font_small = pygame.font.Font(None, 32)
+        self.font_version = pygame.font.Font(None, 22)
         self.title_alpha = 0.0
         self.subtitle_alpha = 0.0
         self.timer = 0.0
@@ -62,3 +64,8 @@ class TitleScreen:
             prompt_surf.set_alpha(int(blink * 255))
             prompt_rect = prompt_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT * 2 // 3))
             surface.blit(prompt_surf, prompt_rect)
+
+        # Version number (bottom-right)
+        ver_surf = self.font_version.render(f"v{GAME_VERSION}", True, LIGHT_GREY)
+        ver_surf.set_alpha(120)
+        surface.blit(ver_surf, (SCREEN_WIDTH - ver_surf.get_width() - 10, SCREEN_HEIGHT - 24))

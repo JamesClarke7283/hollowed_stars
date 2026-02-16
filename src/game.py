@@ -15,8 +15,8 @@ from .models.mothership_systems import ShipSystem, apply_ftl_decay, create_defau
 from .models.quest import LoreEntry, QuestFlag, QuestState
 from .models.ships import SIGNAL_OF_DAWN, Fleet
 from .screens.combat import CombatScreen
+from .screens.captains_log import CaptainsLogScreen
 from .screens.event_dialog import EventDialogScreen
-from .screens.fleet_screen import FleetScreen
 from .screens.formation_screen import FormationScreen
 from .screens.mothership import MothershipScreen
 from .screens.ship_select import ShipSelectScreen
@@ -57,8 +57,8 @@ class Game:
         self.combat_screen: CombatScreen | None = None
         self.event_dialog_screen: EventDialogScreen | None = None
         self.mothership_screen: MothershipScreen | None = None
-        self.fleet_screen: FleetScreen | None = None
         self.formation_screen: FormationScreen | None = None
+        self.captains_log_screen: CaptainsLogScreen | None = None
 
         # Pending combat from events (stored so formation screen can route to it)
         self._pending_enemy: EnemyFleet | None = None
@@ -115,10 +115,10 @@ class Game:
                 self.event_dialog_screen.handle_events(event)
             elif self.state == GameState.MOTHERSHIP and self.mothership_screen:
                 self.mothership_screen.handle_events(event)
-            elif self.state == GameState.FLEET_MANAGEMENT and self.fleet_screen:
-                self.fleet_screen.handle_events(event)
             elif self.state == GameState.FORMATION_SETUP and self.formation_screen:
                 self.formation_screen.handle_events(event)
+            elif self.state == GameState.CAPTAINS_LOG and self.captains_log_screen:
+                self.captains_log_screen.handle_events(event)
             elif self.state == GameState.GAME_OVER:
                 if event.type == pygame.KEYDOWN:
                     self.running = False
@@ -137,12 +137,12 @@ class Game:
             self.ship_select_screen = ShipSelectScreen()
         elif self.state == GameState.MOTHERSHIP:
             self.state = GameState.STAR_MAP
-        elif self.state == GameState.FLEET_MANAGEMENT:
-            self.state = GameState.STAR_MAP
         elif self.state == GameState.COMBAT:
             pass  # Can't escape from combat
         elif self.state == GameState.EVENT_DIALOG:
             pass  # Can't escape from event
+        elif self.state == GameState.CAPTAINS_LOG:
+            self.state = GameState.STAR_MAP
 
     def _update(self, dt: float) -> None:
         self.starfield.update(dt)
@@ -163,6 +163,12 @@ class Game:
                 self.star_map_screen = StarMapScreen(self.galaxy)
                 self.state = self.ship_select_screen.next_state
                 self.ship_select_screen.next_state = None
+                self.quest_state.log_event(
+                    "Departure",
+                    f"The {self.fleet.mothership.name} has launched from the prison station. "
+                    f"{self.fleet.colonists:,} colonists in cryosleep. The dead galaxy awaits.",
+                    "event",
+                )
 
         elif self.state == GameState.STAR_MAP and self.star_map_screen:
             # Handle cryosleep overlay
@@ -174,7 +180,11 @@ class Game:
 
             self.star_map_screen.update(dt)
             if self.star_map_screen.next_state:
-                if self.star_map_screen.next_state == GameState.SYSTEM_VIEW:
+                if self.star_map_screen.next_state == GameState.CAPTAINS_LOG:
+                    self.captains_log_screen = CaptainsLogScreen(self.quest_state)
+                    self.state = GameState.CAPTAINS_LOG
+                    self.star_map_screen.next_state = None
+                elif self.star_map_screen.next_state == GameState.SYSTEM_VIEW:
                     self.system_view_screen = SystemViewScreen(
                         self.galaxy, self.fleet, self.quest_state,
                     )
@@ -197,14 +207,41 @@ class Game:
                     cryo_death_rate = random.uniform(0.001, 0.01)
                     self._cryosleep_colonist_loss = int(self.fleet.colonists * cryo_death_rate)
                     self.fleet.colonists = max(0, self.fleet.colonists - self._cryosleep_colonist_loss)
+
+                    # Fleet ships degrade during FTL (PLAN.md: fleet health goes down)
+                    destroyed_ships: list[str] = []
+                    for ship in list(self.fleet.ships):
+                        decay_pct = random.uniform(0.02, 0.05)
+                        hull_loss = int(ship.max_hull * decay_pct)
+                        ship.hull = max(0, ship.hull - hull_loss)
+                        if ship.hull <= 0:
+                            destroyed_ships.append(ship.name)
+                            self.fleet.ships.remove(ship)
+                    if destroyed_ships:
+                        for name in destroyed_ships:
+                            self._cryosleep_decay_msgs.append(
+                                f"⚠ {name} destroyed during FTL transit!"
+                            )
+
                     self._cryosleep_active = True
                     self._cryosleep_timer = 0.0
 
-                elif self.star_map_screen.next_state == GameState.MOTHERSHIP:
-                    self.mothership_screen = MothershipScreen(self.fleet, self.mothership_systems)
+                    # Log the jump
+                    sid = self.star_map_screen.selected_system_id
+                    target_sys = self.galaxy.systems[sid] if sid is not None and 0 <= sid < len(self.galaxy.systems) else None
+                    sys_name = target_sys.name if target_sys else "unknown system"
+                    self.quest_state.turn += 1
+                    destroyed_note = f" Lost: {', '.join(destroyed_ships)}." if destroyed_ships else ""
+                    self.quest_state.log_event(
+                        f"FTL Jump to {sys_name}",
+                        f"Arrived after {self._cryosleep_years} years in cryosleep. "
+                        f"{self._cryosleep_colonist_loss:,} colonists lost during transit.{destroyed_note}",
+                        "ftl",
+                    )
 
-                elif self.star_map_screen.next_state == GameState.FLEET_MANAGEMENT:
-                    self.fleet_screen = FleetScreen(self.fleet)
+                elif self.star_map_screen.next_state == GameState.MOTHERSHIP:
+                    initial_tab = "fleet" if getattr(self.star_map_screen, 'open_fleet_tab', False) else "systems"
+                    self.mothership_screen = MothershipScreen(self.fleet, self.mothership_systems, initial_tab=initial_tab)
 
                 self.state = self.star_map_screen.next_state
                 self.star_map_screen.next_state = None
@@ -243,6 +280,14 @@ class Game:
                 self.combat_screen = None
                 self._check_game_over()
 
+                # Log combat result
+                won = self.fleet is not None  # Still alive
+                self.quest_state.log_event(
+                    "Combat Resolved",
+                    "The engagement has ended. Fleet survives." if won else "Heavy losses sustained.",
+                    "combat",
+                )
+
         elif self.state == GameState.EVENT_DIALOG and self.event_dialog_screen:
             self.event_dialog_screen.update(dt)
             if self.event_dialog_screen.next_state:
@@ -265,6 +310,13 @@ class Game:
                     # Check for colony establishment
                     if hasattr(self.event_dialog_screen, 'colony_established') and self.event_dialog_screen.colony_established:
                         self.quest_state.colonies_established += 1
+                        n = self.quest_state.colonies_established
+                        self.quest_state.log_event(
+                            f"Colony #{n} Established",
+                            f"A new colony has been founded — humanity's {n}{'st' if n == 1 else 'nd' if n == 2 else 'rd' if n == 3 else 'th'} "
+                            f"settlement. {self.fleet.colonists:,} colonists remain aboard.",
+                            "event",
+                        )
                     self.state = GameState.SYSTEM_VIEW
                 self.event_dialog_screen = None
                 self._check_game_over()
@@ -275,11 +327,7 @@ class Game:
                 self.state = self.mothership_screen.next_state
                 self.mothership_screen.next_state = None
 
-        elif self.state == GameState.FLEET_MANAGEMENT and self.fleet_screen:
-            self.fleet_screen.update(dt)
-            if self.fleet_screen.next_state:
-                self.state = self.fleet_screen.next_state
-                self.fleet_screen.next_state = None
+
 
         elif self.state == GameState.FORMATION_SETUP and self.formation_screen:
             self.formation_screen.update(dt)
@@ -293,6 +341,12 @@ class Game:
                 else:
                     self.state = GameState.SYSTEM_VIEW
                 self.formation_screen = None
+
+        elif self.state == GameState.CAPTAINS_LOG and self.captains_log_screen:
+            self.captains_log_screen.update(dt)
+            if self.captains_log_screen.next_state:
+                self.state = self.captains_log_screen.next_state
+                self.captains_log_screen.next_state = None
 
         elif self.state == GameState.GAME_OVER:
             self._game_over_timer += dt
@@ -328,14 +382,13 @@ class Game:
             self.mothership_screen.draw(self.screen)
             if self.fleet:
                 self.hud.draw(self.screen, self.fleet)
-        elif self.state == GameState.FLEET_MANAGEMENT and self.fleet_screen:
-            self.fleet_screen.draw(self.screen)
-            if self.fleet:
-                self.hud.draw(self.screen, self.fleet)
+
         elif self.state == GameState.FORMATION_SETUP and self.formation_screen:
             self.formation_screen.draw(self.screen)
             if self.fleet:
                 self.hud.draw(self.screen, self.fleet)
+        elif self.state == GameState.CAPTAINS_LOG and self.captains_log_screen:
+            self.captains_log_screen.draw(self.screen)
         elif self.state == GameState.GAME_OVER:
             self._draw_game_over()
 
@@ -348,7 +401,7 @@ class Game:
     def _draw_star_map_hints(self) -> None:
         """Show keybind hints for star map screens."""
         font = pygame.font.Font(None, 22)
-        hint = font.render("TAB — Mothership    F — Fleet Management", True, LIGHT_GREY)
+        hint = font.render("TAB — Mothership    F — Fleet    L — Captain's Log", True, LIGHT_GREY)
         self.screen.blit(hint, (10, SCREEN_HEIGHT - 25))
 
     def _draw_cryosleep_overlay(self) -> None:

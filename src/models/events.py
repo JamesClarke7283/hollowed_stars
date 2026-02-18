@@ -72,15 +72,18 @@ def _derelict_events() -> list[Event]:
         Event(
             title="Silent Hulk",
             description=(
-                "Your probe enters the derelict and finds the corridors dark and silent. "
-                "Emergency power flickers in some sections. There are signs of a hasty evacuation."
+                "Your probe drifts through the derelict's shattered hull. Corridors stretch into "
+                "darkness, their walls scarred by weapons fire older than your civilisation. Emergency "
+                "power flickers in sections that were never meant to go dark. The crew evacuated "
+                "in haste — personal effects float in the null gravity like frozen memories."
             ),
             choices=[
                 EventChoice(
                     "Send a salvage team",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "Your team strips useful materials from the wreck.",
+                        "Your team works in reverent silence, stripping useful materials from a ship "
+                        "that once carried souls who dreamed of stars, just like you.",
                         metal=300, energy=150, rare=30,
                     ),
                 ),
@@ -88,7 +91,8 @@ def _derelict_events() -> list[Event]:
                     "Search the computer core",
                     EventOutcome(
                         EventOutcomeType.GAIN_LORE,
-                        "Fragmented logs reveal coordinates of a nearby supply cache.",
+                        "Fragmented logs flicker to life — the last words of a civilization trying "
+                        "to warn someone. Anyone. The coordinates of a nearby supply cache survive.",
                         lore_text="Log Entry 7741: Supply depot at sector 7-G still operational.",
                         metal=100, energy=50,
                     ),
@@ -96,22 +100,23 @@ def _derelict_events() -> list[Event]:
                 ),
                 EventChoice(
                     "Leave it alone",
-                    EventOutcome(EventOutcomeType.NOTHING, "You move on."),
+                    EventOutcome(EventOutcomeType.NOTHING, "Let the dead keep their secrets."),
                 ),
             ],
         ),
         Event(
             title="Not So Dead",
             description=(
-                "As your probe scans the wreck, automated defense turrets activate! "
-                "The derelict's combat AI is still functional and considers you hostile."
+                "The wreck stirs. Sensor contacts bloom across your display — automated defense "
+                "turrets powering up, targeting arrays locking onto your fleet. A 5,000-year-old "
+                "combat AI awakens from its vigil, and it does not recognise you as friendly."
             ),
             choices=[
                 EventChoice(
                     "Engage the defenses",
                     EventOutcome(
                         EventOutcomeType.COMBAT,
-                        "You move to neutralize the automated defenders.",
+                        "You commit your fleet against machines that have been waiting centuries for this moment.",
                         combat_danger=2,
                         combat_is_federation=True,
                     ),
@@ -120,7 +125,7 @@ def _derelict_events() -> list[Event]:
                     "Retreat immediately",
                     EventOutcome(
                         EventOutcomeType.HULL_DAMAGE,
-                        "You pull back, but not before taking some fire.",
+                        "You pull back, hull plating glowing where energy beams scored the armor.",
                         hull_change=-200,
                     ),
                 ),
@@ -128,7 +133,7 @@ def _derelict_events() -> list[Event]:
                     "Try to override the AI",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "Your hackers manage to shut down the AI and claim everything.",
+                        "Your hackers wrestle control from an intelligence that was ancient when your ancestors were born. It shuts down, and everything aboard is yours.",
                         metal=500, energy=300, rare=80,
                     ),
                     success_chance=0.4,
@@ -138,15 +143,18 @@ def _derelict_events() -> list[Event]:
         Event(
             title="Survivors",
             description=(
-                "Incredibly, you detect life signs. A small group of humans in cryo-sleep, "
-                "preserved for thousands of years. Their pods are failing."
+                "Impossible. Life signs — human life signs — pulsing weakly from deep within the wreck. "
+                "A cluster of cryo-pods, jury-rigged to emergency power, has kept 2,000 souls suspended "
+                "between life and death for longer than recorded history. The pods are failing."
             ),
             choices=[
                 EventChoice(
                     "Rescue the survivors",
                     EventOutcome(
                         EventOutcomeType.GAIN_COLONISTS,
-                        "You save 2,000 souls from certain death. They are grateful beyond words.",
+                        "They wake confused, terrified, speaking a dialect of Standard "
+                        "that your translators struggle with. But they are alive. They are human. "
+                        "And they weep when they learn they are not the last.",
                         colonists=2000,
                     ),
                 ),
@@ -154,7 +162,8 @@ def _derelict_events() -> list[Event]:
                     "Salvage the cryo-tech instead",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "The advanced cryo-components will be useful... if you can live with the choice.",
+                        "The advanced cryo-components will strengthen your own vaults. "
+                        "Their occupants will never know what you chose.",
                         rare=120,
                     ),
                 ),
@@ -236,15 +245,18 @@ def _alien_events() -> list[Event]:
         Event(
             title="First Contact",
             description=(
-                "An alien vessel hails you. Their translation is rough but understandable: "
-                "'You are the old ones? We thought you dead. We trade? Or you threaten?'"
+                "An alien vessel hails you. The translation matrix struggles, then catches: "
+                "'You are the builders. The old ones. We have lived in the ruins of your cities "
+                "for a thousand generations. We thought you myths.' Their weapons are powered "
+                "down. Their cargo bays are open. They want something from you."
             ),
             choices=[
                 EventChoice(
                     "Propose trade",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "The aliens exchange raw materials for some of your technology.",
+                        "Old technology for new resources — a bargain struck between "
+                        "a dying species and one born from its ashes.",
                         metal=400, energy=200,
                     ),
                 ),
@@ -252,7 +264,7 @@ def _alien_events() -> list[Event]:
                     "Demand tribute",
                     EventOutcome(
                         EventOutcomeType.COMBAT,
-                        "The aliens take offense and attack!",
+                        "The awe in their voices turns to fury. They will not kneel to ghosts.",
                         combat_danger=2,
                     ),
                 ),
@@ -260,7 +272,8 @@ def _alien_events() -> list[Event]:
                     "Share technology peacefully",
                     EventOutcome(
                         EventOutcomeType.GAIN_COLONISTS,
-                        "The aliens are overwhelmed by your generosity. Some wish to join your fleet.",
+                        "Your generosity shatters something in them — old myths made real and kind. "
+                        "Some of their young ask to join you, to walk among the builders.",
                         colonists=500, metal=200,
                     ),
                     success_chance=0.8,
@@ -270,15 +283,16 @@ def _alien_events() -> list[Event]:
         Event(
             title="Ambush!",
             description=(
-                "What appeared to be a trading post was a trap! Alien warships emerge "
-                "from behind the station, weapons hot."
+                "The trading post was bait. Alien warships materialise from behind the station, "
+                "weapons hot, hulls painted with war markings. They see your technology and "
+                "they want it. All of it. Diplomacy was never their intention."
             ),
             choices=[
                 EventChoice(
                     "Fight your way out",
                     EventOutcome(
                         EventOutcomeType.COMBAT,
-                        "No choice but to engage.",
+                        "No negotiation. No surrender. Only survival.",
                         combat_danger=3,
                     ),
                 ),
@@ -286,7 +300,8 @@ def _alien_events() -> list[Event]:
                     "Emergency FTL jump",
                     EventOutcome(
                         EventOutcomeType.HULL_DAMAGE,
-                        "You take hits as you charge the FTL drive, but escape.",
+                        "FTL spins up under fire. Hull breaches seal themselves as you "
+                        "tear free of the ambush, trailing atmosphere and debris.",
                         hull_change=-400,
                     ),
                 ),
@@ -301,15 +316,18 @@ def _planet_events() -> list[Event]:
         Event(
             title="Resource Deposit",
             description=(
-                "Scans reveal significant mineral deposits on the planet's surface. "
-                "Mining would be straightforward but time-consuming."
+                "The planet's crust glimmers with mineral veins visible from orbit — "
+                "a geological treasure laid bare by millennia of erosion. Whatever "
+                "civilisation once mined here abandoned the site long ago, leaving "
+                "their excavations open like wounds in the earth."
             ),
             choices=[
                 EventChoice(
                     "Deploy mining drones",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "The drones extract valuable minerals.",
+                        "The drones descend like metal locusts, extracting what the "
+                        "ancient miners left behind. The cargo holds grow heavier.",
                         metal=250, rare=40,
                     ),
                 ),
@@ -317,7 +335,8 @@ def _planet_events() -> list[Event]:
                     "Quick surface grab",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "A hasty collection yields some materials.",
+                        "A hasty collection from the surface layers — enough to be "
+                        "worth the fuel, but you can see the deeper veins calling.",
                         metal=100,
                     ),
                 ),
@@ -326,19 +345,23 @@ def _planet_events() -> list[Event]:
         Event(
             title="Habitable World",
             description=(
-                "Against all odds, this world has a breathable atmosphere and liquid water. "
-                "Establishing a permanent colony here would be a monumental undertaking — "
-                "requiring 100,000 colonists, 2,000 metal for infrastructure, and 1,000 energy "
-                "for power systems. But it could mean the survival of our species beyond the Mothership."
+                "Against all odds, this world breathes. Liquid water shimmers under "
+                "an alien sun, and the atmosphere reads as compatible with human life. "
+                "The locals have already claimed it — their cities dot the coastlines "
+                "like barnacles on a pier. But the hinterlands are vast, and perhaps "
+                "they would tolerate neighbours. Establishing a permanent colony "
+                "would require 100,000 colonists, 2,000 metal for infrastructure, "
+                "and 1,000 energy for power systems."
             ),
             choices=[
                 EventChoice(
                     "Establish a colony (100k colonists, 2000M, 1000E)",
                     EventOutcome(
                         EventOutcomeType.ESTABLISH_COLONY,
-                        "Months of work. Prefab habitats unfold across the plains. Water treatment, "
-                        "power generation, agricultural domes — everything needed for self-sufficiency. "
-                        "100,000 of your people will wake from cryosleep to build a new civilisation here.",
+                        "Months of work. Prefab habitats unfold across empty plains far from "
+                        "the alien settlements. Water treatment, power generation, agricultural "
+                        "domes — everything needed for self-sufficiency. 100,000 of your people "
+                        "will wake from cryosleep to build a new civilisation under foreign stars.",
                         lore_text="Colony established. Humanity endures in more than one place now.",
                         colonists=-100_000,
                         metal=-2000,
@@ -349,7 +372,8 @@ def _planet_events() -> list[Event]:
                     "Survey and harvest resources",
                     EventOutcome(
                         EventOutcomeType.GAIN_RESOURCES,
-                        "You send down survey teams to gather what you can without committing to a full colony.",
+                        "Survey teams descend to gather what they can without commitment. "
+                        "The air smells of rain and growing things — a cruel reminder.",
                         metal=300, energy=400, rare=80,
                     ),
                 ),
@@ -357,7 +381,95 @@ def _planet_events() -> list[Event]:
                     "Mark coordinates and continue",
                     EventOutcome(
                         EventOutcomeType.NOTHING,
-                        "The coordinates are logged. Perhaps someday, when you have the resources...",
+                        "The coordinates are logged in the nav computer, glowing like a promise. "
+                        "Perhaps someday, when the fleet is stronger...",
+                    ),
+                ),
+            ],
+        ),
+        Event(
+            title="Terraforming Candidate",
+            description=(
+                "This barren world sits at the edge of its star's habitable zone. "
+                "Atmospheric processors could warm it within decades, and subsurface "
+                "ice reserves could supply water. It would be a gruelling project — "
+                "but the result would be a second Earth. The process requires a "
+                "massive investment: 50,000 colonists to seed the workforce, "
+                "3,000 metal for atmospheric processors, and 2,000 energy to power "
+                "the terraforming grid."
+            ),
+            choices=[
+                EventChoice(
+                    "Begin terraforming (50k colonists, 3000M, 2000E)",
+                    EventOutcome(
+                        EventOutcomeType.ESTABLISH_COLONY,
+                        "The first atmospheric processors roar to life, belching greenhouse "
+                        "gases into the thin air. It will take generations, but the seed "
+                        "has been planted. 50,000 volunteers descend to begin the long work "
+                        "of turning stone and ice into soil and rain.",
+                        lore_text="Terraforming begun. In centuries, this dead rock will bloom.",
+                        colonists=-50_000,
+                        metal=-3000,
+                        energy=-2000,
+                    ),
+                    success_chance=0.85,
+                ),
+                EventChoice(
+                    "Extract ice reserves instead",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_RESOURCES,
+                        "Mining teams crack open the ice vaults, converting frozen water into "
+                        "energy reserves and extracting minerals from the substrate.",
+                        energy=600, metal=200, rare=50,
+                    ),
+                ),
+                EventChoice(
+                    "Log and move on",
+                    EventOutcome(
+                        EventOutcomeType.NOTHING,
+                        "Another world catalogued, another promise deferred. The fleet "
+                        "cannot afford to stop for every possibility.",
+                    ),
+                ),
+            ],
+        ),
+        Event(
+            title="Hostile Wildlife",
+            description=(
+                "The planet's biosphere is thriving — but violently so. Massive "
+                "predatory organisms patrol the surface, and the vegetation itself "
+                "seems to react to intrusion. Survey drones have been destroyed "
+                "within minutes of landing. Whatever evolution produced here, "
+                "it did not produce hospitality."
+            ),
+            choices=[
+                EventChoice(
+                    "Orbital bombardment of landing zone",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_RESOURCES,
+                        "Precision strikes clear a perimeter. Teams descend into "
+                        "the scorched zone, harvesting biological specimens and "
+                        "rare organic compounds before the wildlife reclaims the area.",
+                        rare=120, metal=80, energy=-100,
+                    ),
+                    success_chance=0.7,
+                ),
+                EventChoice(
+                    "Deploy armoured survey team",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_RESOURCES,
+                        "The team returns battered but successful, carrying samples "
+                        "of alien biochemistry that could advance human medicine by centuries.",
+                        rare=200,
+                    ),
+                    success_chance=0.5,
+                ),
+                EventChoice(
+                    "Observe from orbit",
+                    EventOutcome(
+                        EventOutcomeType.NOTHING,
+                        "Fascinating but ultimately useless from this distance. "
+                        "The data is logged for future xenobiologists.",
                     ),
                 ),
             ],

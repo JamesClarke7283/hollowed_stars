@@ -183,6 +183,9 @@ def build_fleet_ship(ship_class: ShipClass, name: str, formation_slot: int = 0) 
     )
 
 
+from .inventory import Inventory
+
+
 @dataclass
 class Fleet:
     """The player's entire fleet state."""
@@ -191,7 +194,7 @@ class Fleet:
     ships: list[FleetShip] = field(default_factory=list)
     resources: Resources = field(default_factory=Resources)
     colonists: int = 1_000_000
-    weapon_inventory: list[str] = field(default_factory=list)  # Crafted weapon names
+    inventory: Inventory = field(default_factory=Inventory)  # Equipment storage
 
     @property
     def total_ships(self) -> int:

@@ -21,14 +21,33 @@ from ..constants import (
     WHITE,
 )
 from ..models.galaxy import Galaxy, StarSystem
+from ..models.diplomacy import Faction
 from ..states import GameState
+
+# Faction territory colours (cycled)  
+_FACTION_COLORS: list[tuple[int, int, int]] = [
+    (60, 200, 120),   # Green
+    (200, 120, 60),   # Orange
+    (120, 60, 200),   # Purple
+    (200, 200, 60),   # Yellow
+    (60, 160, 200),   # Teal
+    (200, 60, 120),   # Pink
+    (120, 200, 60),   # Lime
+    (60, 120, 200),   # Blue
+]
 
 
 class StarMapScreen:
     """Galactic star map with pan/zoom and clickable systems."""
 
-    def __init__(self, galaxy: Galaxy) -> None:
+    def __init__(self, galaxy: Galaxy, factions: list[Faction] | None = None) -> None:
         self.galaxy = galaxy
+        self.factions = factions or []
+        # Build faction_id → color mapping
+        self._faction_colors: dict[str, tuple[int, int, int]] = {}
+        for i, f in enumerate(self.factions):
+            self._faction_colors[f.id] = _FACTION_COLORS[i % len(_FACTION_COLORS)]
+
         self.font_name = pygame.font.Font(None, 28)
         self.font_info = pygame.font.Font(None, 24)
         self.font_title = pygame.font.Font(None, 40)
@@ -173,6 +192,11 @@ class StarMapScreen:
                 r = max(2, radius - 2)
                 pygame.draw.circle(surface, dim, (sx, sy), r)
 
+            # Faction territory ring
+            if system.faction_id and system.faction_id in self._faction_colors:
+                fac_color = self._faction_colors[system.faction_id]
+                pygame.draw.circle(surface, fac_color, (sx, sy), radius + 6, 1)
+
             # System name (only for visited, hovered, or connected)
             if is_current or is_hovered or (is_connected and self.zoom > 0.8):
                 name_color = WHITE if is_current or is_hovered else LIGHT_GREY
@@ -304,6 +328,10 @@ class StarMapScreen:
         ]
         if system.visited:
             lines.append("✓ Visited")
+        if system.faction_id:
+            faction = next((f for f in self.factions if f.id == system.faction_id), None)
+            if faction:
+                lines.append(f"⚑ {faction.name}")
 
         line_height = 22
         w = 220

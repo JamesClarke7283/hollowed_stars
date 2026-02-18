@@ -17,5 +17,6 @@ class GameState(enum.Enum):
     CAPTAINS_LOG = "captains_log"
     GAME_OVER = "game_over"
     CREDITS = "credits"
+    DIPLOMACY = "diplomacy"
 
 

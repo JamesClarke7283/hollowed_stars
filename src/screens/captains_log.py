@@ -1,6 +1,7 @@
-"""Captain's Log — game event timeline and discovered lore.
+"""Captain's Log — three-tab interface: event log, lore, and quest tasks.
 
-Full-screen two-tab interface with master/detail layout.
+Redesigned per PLAN.md with category filtering, quest task tracking,
+and a master/detail layout.
 """
 
 from __future__ import annotations
@@ -31,20 +32,22 @@ _CAT_STYLE: dict[str, tuple[str, tuple[int, int, int]]] = {
     "exploration": ("◎", HULL_GREEN),
     "lore":        ("★", AMBER),
 }
+_ALL_CATEGORIES = ["all", "event", "ftl", "combat", "exploration", "lore"]
 
 # Layout constants
 _HEADER_H = 55
 _TAB_H = 32
+_FILTER_H = 28
 _MENU_BAR_H = 36
-_LIST_W = 420   # left-hand list panel width
-_CONTENT_TOP = _HEADER_H + _TAB_H + 12
+_LIST_W = 420
+_CONTENT_TOP = _HEADER_H + _TAB_H + _FILTER_H + 8
 _CONTENT_BOTTOM = SCREEN_HEIGHT - _MENU_BAR_H - 8
 _DETAIL_X = _LIST_W + 20
 _DETAIL_W = SCREEN_WIDTH - _DETAIL_X - 15
 
 
 class CaptainsLogScreen:
-    """Two-tab captain's log with master/detail layout."""
+    """Three-tab captain's log: event log, lore, quest tasks."""
 
     def __init__(self, quest_state: QuestState) -> None:
         self.quest_state = quest_state
@@ -57,12 +60,16 @@ class CaptainsLogScreen:
 
         self.next_state: GameState | None = None
 
-        # Active tab: "log" or "lore"
+        # Active tab: "log", "lore", or "tasks"
         self.active_tab = "log"
 
         # Selection indices
         self.log_selected = 0
         self.lore_selected = 0
+        self.task_selected = 0
+
+        # Log category filter
+        self.filter_idx = 0  # index into _ALL_CATEGORIES
 
     # ── Input ──────────────────────────────────────────────────────────
 
@@ -73,21 +80,42 @@ class CaptainsLogScreen:
         if event.key in (pygame.K_ESCAPE, pygame.K_l):
             self.next_state = GameState.STAR_MAP
         elif event.key == pygame.K_TAB:
-            self.active_tab = "lore" if self.active_tab == "log" else "log"
+            tabs = ["log", "lore", "tasks"]
+            idx = tabs.index(self.active_tab)
+            self.active_tab = tabs[(idx + 1) % len(tabs)]
         elif event.key in (pygame.K_UP, pygame.K_w):
             self._move_selection(-1)
         elif event.key in (pygame.K_DOWN, pygame.K_s):
             self._move_selection(1)
+        elif event.key in (pygame.K_LEFT, pygame.K_a) and self.active_tab == "log":
+            self.filter_idx = (self.filter_idx - 1) % len(_ALL_CATEGORIES)
+            self.log_selected = 0
+        elif event.key in (pygame.K_RIGHT, pygame.K_d) and self.active_tab == "log":
+            self.filter_idx = (self.filter_idx + 1) % len(_ALL_CATEGORIES)
+            self.log_selected = 0
 
     def _move_selection(self, delta: int) -> None:
         if self.active_tab == "log":
-            n = len(self.quest_state.log_entries)
+            filtered = self._filtered_log_entries()
+            n = len(filtered)
             if n:
                 self.log_selected = max(0, min(n - 1, self.log_selected + delta))
-        else:
+        elif self.active_tab == "lore":
             n = len(self.quest_state.lore_entries)
             if n:
                 self.lore_selected = max(0, min(n - 1, self.lore_selected + delta))
+        else:
+            tasks = self.quest_state.active_tasks
+            n = len(tasks)
+            if n:
+                self.task_selected = max(0, min(n - 1, self.task_selected + delta))
+
+    def _filtered_log_entries(self) -> list[LogEntry]:
+        cat = _ALL_CATEGORIES[self.filter_idx]
+        entries = self.quest_state.log_entries
+        if cat == "all":
+            return entries
+        return [e for e in entries if e.category == cat]
 
     def update(self, dt: float) -> None:
         pass
@@ -95,7 +123,6 @@ class CaptainsLogScreen:
     # ── Draw ───────────────────────────────────────────────────────────
 
     def draw(self, surface: pygame.Surface) -> None:
-        # Full-screen dark overlay so content is readable over starfield
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         overlay.fill((5, 8, 15, 230))
         surface.blit(overlay, (0, 0))
@@ -104,18 +131,20 @@ class CaptainsLogScreen:
         self._draw_tabs(surface)
 
         if self.active_tab == "log":
+            self._draw_filter_bar(surface)
             self._draw_log_list(surface)
             self._draw_log_detail(surface)
-        else:
+        elif self.active_tab == "lore":
             self._draw_lore_list(surface)
             self._draw_lore_detail(surface)
+        else:
+            self._draw_tasks(surface)
 
         self._draw_menu_bar(surface)
 
     # ── Header ─────────────────────────────────────────────────────────
 
     def _draw_header(self, surface: pygame.Surface) -> None:
-        # Dark header bar
         bar = pygame.Surface((SCREEN_WIDTH, _HEADER_H), pygame.SRCALPHA)
         bar.fill((8, 12, 22, 230))
         surface.blit(bar, (0, 0))
@@ -124,7 +153,6 @@ class CaptainsLogScreen:
         title = self.font_title.render("CAPTAIN'S LOG", True, AMBER)
         surface.blit(title, (20, 12))
 
-        # Colony / turn counter on right side
         turn = self.quest_state.turn
         cols = self.quest_state.colonies_established
         info = self.font_small.render(
@@ -137,9 +165,11 @@ class CaptainsLogScreen:
     def _draw_tabs(self, surface: pygame.Surface) -> None:
         log_n = len(self.quest_state.log_entries)
         lore_n = len(self.quest_state.lore_entries)
+        task_n = len(self.quest_state.active_tasks)
         tabs = [
-            ("log",  f"Event Log ({log_n})"),
-            ("lore", f"Lore ({lore_n})"),
+            ("log",   f"Event Log ({log_n})"),
+            ("lore",  f"Lore ({lore_n})"),
+            ("tasks", f"Objectives ({task_n})"),
         ]
 
         x = 20
@@ -154,15 +184,37 @@ class CaptainsLogScreen:
                 pygame.draw.line(surface, AMBER, (x, y + 24), (x + w, y + 24), 2)
             x += surf.get_width() + 35
 
-    # ── Log tab: list ──────────────────────────────────────────────────
+    # ── Log filter bar ─────────────────────────────────────────────────
+
+    def _draw_filter_bar(self, surface: pygame.Surface) -> None:
+        y = _HEADER_H + _TAB_H + 2
+        label = self.font_small.render("Filter:", True, LIGHT_GREY)
+        surface.blit(label, (20, y + 4))
+        x = 75
+        for i, cat in enumerate(_ALL_CATEGORIES):
+            active = i == self.filter_idx
+            display = cat.upper() if cat != "all" else "ALL"
+            icon = ""
+            if cat in _CAT_STYLE:
+                icon = _CAT_STYLE[cat][0] + " "
+            text = f"{icon}{display}"
+            color = AMBER if active else DARK_GREY
+            s = self.font_small.render(text, True, color)
+            surface.blit(s, (x, y + 4))
+            if active:
+                pygame.draw.line(surface, AMBER, (x, y + 20), (x + s.get_width(), y + 20), 1)
+            x += s.get_width() + 20
+
+    # ── Log list ───────────────────────────────────────────────────────
 
     def _draw_log_list(self, surface: pygame.Surface) -> None:
-        entries = self.quest_state.log_entries
+        entries = self._filtered_log_entries()
         if not entries:
-            self._draw_empty("No events recorded yet.", surface)
+            cat = _ALL_CATEGORIES[self.filter_idx]
+            msg = "No events recorded yet." if cat == "all" else f"No {cat} events."
+            self._draw_empty(msg, surface)
             return
 
-        # Draw list panel background
         panel_h = _CONTENT_BOTTOM - _CONTENT_TOP
         panel = pygame.Surface((_LIST_W, panel_h), pygame.SRCALPHA)
         panel.fill((10, 14, 24, 200))
@@ -175,7 +227,6 @@ class CaptainsLogScreen:
         max_visible = panel_h // row_h
         sel_rev = len(entries) - 1 - self.log_selected
 
-        # Scroll to keep selection visible
         scroll = max(0, sel_rev - max_visible + 1)
         visible = displayed[scroll : scroll + max_visible]
 
@@ -192,12 +243,10 @@ class CaptainsLogScreen:
                     border_radius=3,
                 )
 
-            # Category icon
             icon, icon_c = _CAT_STYLE.get(entry.category, ("●", WHITE))
             ic = self.font_body.render(icon, True, icon_c)
             surface.blit(ic, (lx, y + 4))
 
-            # Title (truncated)
             title_c = CYAN if selected else WHITE
             max_title_w = _LIST_W - 110
             title_text = entry.title
@@ -208,11 +257,9 @@ class CaptainsLogScreen:
                     title_s = self.font_body.render(title_text + "…", True, title_c)
             surface.blit(title_s, (lx + 24, y + 2))
 
-            # Turn badge
             turn_s = self.font_small.render(f"T{entry.turn:03d}", True, DARK_GREY)
             surface.blit(turn_s, (lx + 24, y + 20))
 
-            # Preview line
             preview = entry.text[:60] + ("…" if len(entry.text) > 60 else "")
             prev_s = self.font_small.render(preview, True, LIGHT_GREY if selected else DARK_GREY)
             pw = _LIST_W - 90
@@ -224,10 +271,10 @@ class CaptainsLogScreen:
 
             y += row_h
 
-    # ── Log tab: detail panel ──────────────────────────────────────────
+    # ── Log detail ─────────────────────────────────────────────────────
 
     def _draw_log_detail(self, surface: pygame.Surface) -> None:
-        entries = self.quest_state.log_entries
+        entries = self._filtered_log_entries()
         if not entries:
             return
         if not (0 <= self.log_selected < len(entries)):
@@ -247,13 +294,11 @@ class CaptainsLogScreen:
         x = _DETAIL_X + 16
         y = _CONTENT_TOP + 14
 
-        # Category + title
         icon, icon_c = _CAT_STYLE.get(entry.category, ("●", WHITE))
         header = self.font_head.render(f"{icon}  {entry.title}", True, icon_c)
         surface.blit(header, (x, y))
         y += 34
 
-        # Turn & category info
         meta = self.font_small.render(
             f"Turn {entry.turn}  ·  Category: {entry.category.upper()}", True, DARK_GREY,
         )
@@ -262,7 +307,6 @@ class CaptainsLogScreen:
         pygame.draw.line(surface, PANEL_BORDER, (x, y), (x + _DETAIL_W - 32, y), 1)
         y += 12
 
-        # Full text (word-wrapped)
         lines = self._wrap(entry.text, _DETAIL_W - 40, self.font_body)
         for line in lines:
             if y > _CONTENT_BOTTOM - 20:
@@ -271,19 +315,17 @@ class CaptainsLogScreen:
             surface.blit(ts, (x, y))
             y += 22
 
-    # ── Lore tab: list ─────────────────────────────────────────────────
+    # ── Lore list ──────────────────────────────────────────────────────
 
     def _draw_lore_list(self, surface: pygame.Surface) -> None:
         entries = self.quest_state.lore_entries
 
-        # Panel
         panel_h = _CONTENT_BOTTOM - _CONTENT_TOP
         panel = pygame.Surface((_LIST_W, panel_h), pygame.SRCALPHA)
         panel.fill((10, 14, 24, 200))
         surface.blit(panel, (8, _CONTENT_TOP))
         pygame.draw.rect(surface, PANEL_BORDER, (8, _CONTENT_TOP, _LIST_W, panel_h), 1, border_radius=4)
 
-        # Fragment counter
         found = sum(
             1 for f in [
                 QuestFlag.LORE_FRAGMENT_1, QuestFlag.LORE_FRAGMENT_2,
@@ -298,7 +340,9 @@ class CaptainsLogScreen:
         if not entries:
             empty = self.font_body.render("No lore discovered.", True, DARK_GREY)
             surface.blit(empty, (16, _CONTENT_TOP + 40))
-            hint = self.font_small.render("Survey derelicts and ruins to find lore.", True, DARK_GREY)
+            hint = self.font_small.render(
+                "Survey derelicts and ancient ruins to uncover lost history.", True, DARK_GREY,
+            )
             surface.blit(hint, (16, _CONTENT_TOP + 66))
             return
 
@@ -317,7 +361,7 @@ class CaptainsLogScreen:
             surface.blit(ts, (16, y + 4))
             y += 30
 
-    # ── Lore tab: detail panel ─────────────────────────────────────────
+    # ── Lore detail ────────────────────────────────────────────────────
 
     def _draw_lore_detail(self, surface: pygame.Surface) -> None:
         entries = self.quest_state.lore_entries
@@ -340,14 +384,12 @@ class CaptainsLogScreen:
         x = _DETAIL_X + 16
         y = _CONTENT_TOP + 14
 
-        # Title
         header = self.font_head.render(f"★  {entry.title}", True, AMBER)
         surface.blit(header, (x, y))
         y += 34
         pygame.draw.line(surface, PANEL_BORDER, (x, y), (x + _DETAIL_W - 32, y), 1)
         y += 14
 
-        # Full text
         lines = self._wrap(entry.text, _DETAIL_W - 40, self.font_body)
         for line in lines:
             if y > _CONTENT_BOTTOM - 20:
@@ -383,6 +425,104 @@ class CaptainsLogScreen:
                 surface.blit(ms, (x, y))
                 y += 20
 
+    # ── Tasks tab ──────────────────────────────────────────────────────
+
+    def _draw_tasks(self, surface: pygame.Surface) -> None:
+        tasks = self.quest_state.active_tasks
+
+        # Full-width panel
+        panel_w = SCREEN_WIDTH - 30
+        panel_h = _CONTENT_BOTTOM - _CONTENT_TOP
+        panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        panel.fill((10, 14, 24, 200))
+        surface.blit(panel, (15, _CONTENT_TOP))
+        pygame.draw.rect(surface, PANEL_BORDER, (15, _CONTENT_TOP, panel_w, panel_h), 1, border_radius=4)
+
+        if not tasks:
+            empty = self.font_body.render(
+                "No objectives yet. Explore the galaxy to discover your purpose.", True, DARK_GREY,
+            )
+            surface.blit(empty, (30, _CONTENT_TOP + 40))
+            return
+
+        x = 30
+        y = _CONTENT_TOP + 12
+
+        # Section header
+        header = self.font_head.render("MAIN QUEST", True, AMBER)
+        surface.blit(header, (x, y))
+        y += 34
+        pygame.draw.line(surface, PANEL_BORDER, (x, y), (x + panel_w - 40, y), 1)
+        y += 12
+
+        for i, (task, completed) in enumerate(tasks):
+            selected = i == self.task_selected
+            row_h = 58
+
+            if selected:
+                pygame.draw.rect(
+                    surface, (20, 40, 65),
+                    (18, y - 2, panel_w - 6, row_h),
+                    border_radius=3,
+                )
+
+            # Status icon
+            if completed:
+                icon = "✓"
+                icon_color = HULL_GREEN
+            else:
+                icon = "▸" if selected else "○"
+                icon_color = CYAN if selected else LIGHT_GREY
+
+            ic = self.font_head.render(icon, True, icon_color)
+            surface.blit(ic, (x, y + 4))
+
+            # Title
+            title_color = HULL_GREEN if completed else (WHITE if selected else LIGHT_GREY)
+            ts = self.font_head.render(task.title, True, title_color)
+            surface.blit(ts, (x + 28, y + 2))
+
+            # Description
+            desc_color = LIGHT_GREY if not completed else DARK_GREY
+            desc_lines = self._wrap(task.description, panel_w - 80, self.font_small)
+            for dl in desc_lines[:2]:
+                ds = self.font_small.render(dl, True, desc_color)
+                surface.blit(ds, (x + 28, y + 26))
+                y += 16
+            y += row_h - 16 * min(len(desc_lines), 2)
+
+            if y > _CONTENT_BOTTOM - 30:
+                break
+
+        # Optional tasks section
+        y += 10
+        if y < _CONTENT_BOTTOM - 40:
+            self.quest_state.ensure_optional_tasks()
+            opt_tasks = self.quest_state.optional_tasks
+            if opt_tasks:
+                pygame.draw.line(surface, PANEL_BORDER, (x, y), (x + panel_w - 40, y), 1)
+                y += 12
+                opt_header = self.font_head.render("OPTIONAL OBJECTIVES", True, AMBER)
+                surface.blit(opt_header, (x, y))
+                y += 30
+
+                for ot in opt_tasks:
+                    if y > _CONTENT_BOTTOM - 40:
+                        break
+                    done = ot.completed
+                    icon = "✓" if done else "○"
+                    color = HULL_GREEN if done else WHITE
+                    progress_str = f"{ot.progress}/{ot.target}"
+                    text = f"{icon}  {ot.title} ({progress_str})"
+                    ts = self.font_body.render(text, True, color)
+                    surface.blit(ts, (x, y))
+                    y += 22
+                    desc = self.font_small.render(
+                        ot.description, True, LIGHT_GREY if not done else DARK_GREY,
+                    )
+                    surface.blit(desc, (x + 28, y))
+                    y += 22
+
     # ── Menu bar ───────────────────────────────────────────────────────
 
     def _draw_menu_bar(self, surface: pygame.Surface) -> None:
@@ -395,6 +535,10 @@ class CaptainsLogScreen:
         actions = [
             ("[W/S]", "Navigate"),
             ("[TAB]", "Switch Tab"),
+        ]
+        if self.active_tab == "log":
+            actions.append(("[A/D]", "Filter"))
+        actions += [
             ("[L]", "Exit"),
             ("[ESC]", "Exit"),
         ]

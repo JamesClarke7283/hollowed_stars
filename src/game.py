@@ -10,7 +10,8 @@ import pygame
 from .constants import AMBER, CYAN, DARK_GREY, FPS, HULL_GREEN, LIGHT_GREY, RED_ALERT, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE, WHITE
 from .models.combat import CombatEngine, EnemyFleet, generate_enemy_fleet
 from .models.events import get_event_for_object_type
-from .models.galaxy import Galaxy
+from .models.galaxy import Galaxy, assign_factions_to_systems
+from .models.diplomacy import Faction, generate_factions
 from .models.mothership_systems import ShipSystem, apply_ftl_decay, create_default_systems
 from .models.quest import LoreEntry, QuestFlag, QuestState
 from .models.save import delete_save, load_game, save_game
@@ -18,6 +19,7 @@ from .models.ships import SIGNAL_OF_DAWN, Fleet
 from .screens.combat import CombatScreen
 from .screens.captains_log import CaptainsLogScreen
 from .screens.credits import CreditsScreen
+from .screens.diplomacy import DiplomacyScreen
 from .screens.event_dialog import EventDialogScreen
 from .screens.formation_screen import FormationScreen
 from .screens.mothership import MothershipScreen
@@ -62,6 +64,10 @@ class Game:
         self.formation_screen: FormationScreen | None = None
         self.captains_log_screen: CaptainsLogScreen | None = None
         self.credits_screen: CreditsScreen | None = None
+        self.diplomacy_screen: DiplomacyScreen | None = None
+
+        # Faction data (generated alongside galaxy)
+        self.factions: list[Faction] = []
 
         # Save feedback
         self._save_msg = ""
@@ -140,6 +146,8 @@ class Game:
                 self.captains_log_screen.handle_events(event)
             elif self.state == GameState.CREDITS and self.credits_screen:
                 self.credits_screen.handle_events(event)
+            elif self.state == GameState.DIPLOMACY and self.diplomacy_screen:
+                self.diplomacy_screen.handle_events(event)
             elif self.state == GameState.GAME_OVER:
                 if event.type == pygame.KEYDOWN:
                     self.running = False
@@ -167,6 +175,8 @@ class Game:
         elif self.state == GameState.CREDITS:
             self.state = GameState.TITLE
             self.title_screen = TitleScreen()
+        elif self.state == GameState.DIPLOMACY:
+            self.state = GameState.SYSTEM_VIEW
 
     def _update(self, dt: float) -> None:
         self.starfield.update(dt)
@@ -191,7 +201,7 @@ class Game:
                     result = load_game()
                     if result:
                         self.fleet, self.galaxy, self.mothership_systems, self.quest_state = result
-                        self.star_map_screen = StarMapScreen(self.galaxy)
+                        self.star_map_screen = StarMapScreen(self.galaxy, self.factions)
                         self.state = GameState.STAR_MAP
                     else:
                         # Save corrupted — fall through to ship select
@@ -206,13 +216,21 @@ class Game:
                 self.galaxy = Galaxy()
                 self.mothership_systems = create_default_systems()
                 self.quest_state = QuestState()
-                self.star_map_screen = StarMapScreen(self.galaxy)
+                self.star_map_screen = StarMapScreen(self.galaxy, self.factions)
                 self.state = self.ship_select_screen.next_state
                 self.ship_select_screen.next_state = None
+
+                # Generate alien factions and assign to galaxy systems
+                self.factions = generate_factions(rng=random.Random(self.galaxy.seed))
+                assign_factions_to_systems(self.galaxy.systems, self.factions, random.Random(self.galaxy.seed))
+
                 self.quest_state.log_event(
                     "Departure",
-                    f"The {self.fleet.mothership.name} has launched from the prison station. "
-                    f"{self.fleet.colonists:,} colonists in cryosleep. The dead galaxy awaits.",
+                    f"The {self.fleet.mothership.name} has launched from the prison station "
+                    f"deep within the heart of a dying star. {self.fleet.colonists:,} souls "
+                    f"sleep in cryogenic vaults, dreaming of a world they have never seen. "
+                    f"Eight thousand years of isolation end now. The dead galaxy awaits, "
+                    f"and with it, the ghosts of what we once were.",
                     "event",
                 )
 
@@ -303,6 +321,16 @@ class Game:
                         self.fleet,
                     )
                     self.state = GameState.EVENT_DIALOG
+                elif next_st == GameState.DIPLOMACY and self.system_view_screen.pending_diplomacy_faction_id:
+                    # Look up faction by id
+                    fid = self.system_view_screen.pending_diplomacy_faction_id
+                    faction = next((f for f in self.factions if f.id == fid), None)
+                    if faction:
+                        self.diplomacy_screen = DiplomacyScreen(faction, self.fleet)
+                        self.state = GameState.DIPLOMACY
+                    else:
+                        self.state = GameState.SYSTEM_VIEW
+                    self.system_view_screen.pending_diplomacy_faction_id = ""
                 elif next_st == GameState.STAR_MAP:
                     self.state = GameState.STAR_MAP
                 else:
@@ -327,11 +355,18 @@ class Game:
 
                 # Log combat result
                 won = self.fleet is not None  # Still alive
-                self.quest_state.log_event(
-                    "Combat Resolved",
-                    "The engagement has ended. Fleet survives." if won else "Heavy losses sustained.",
-                    "combat",
-                )
+                if won:
+                    combat_desc = (
+                        "The guns fall silent and the debris field spreads like a "
+                        "funeral shroud. Your fleet survives, scarred but unbroken. "
+                        "The void does not care for victory or defeat — only silence."
+                    )
+                else:
+                    combat_desc = (
+                        "The final transmission cuts to static. Across the wreckage, "
+                        "emergency beacons pulse in vain. Heavy losses have been sustained."
+                    )
+                self.quest_state.log_event("Combat Resolved", combat_desc, "combat")
                 self._auto_save()
 
         elif self.state == GameState.EVENT_DIALOG and self.event_dialog_screen:
@@ -339,6 +374,19 @@ class Game:
             if self.event_dialog_screen.next_state:
                 # Process quest flag from the resolved outcome
                 self._process_quest_flag(self.event_dialog_screen.resolved_quest_flag)
+
+                # Track optional tasks based on event context
+                self.quest_state.ensure_optional_tasks()
+                if self.event_dialog_screen.event:
+                    evt_title = self.event_dialog_screen.event.title.lower()
+                    if any(kw in evt_title for kw in ("derelict", "wreck", "salvage", "hull")):
+                        msg = self.quest_state.increment_optional("explore_derelicts")
+                        if msg:
+                            self.quest_state.log_event("Objective Complete", msg, "event")
+                    elif any(kw in evt_title for kw in ("anomal", "distortion", "signal", "quantum")):
+                        msg = self.quest_state.increment_optional("survey_anomalies")
+                        if msg:
+                            self.quest_state.log_event("Objective Complete", msg, "event")
 
                 # Check if event triggered combat
                 if self.event_dialog_screen.trigger_combat and self.fleet:
@@ -363,6 +411,9 @@ class Game:
                             f"settlement. {self.fleet.colonists:,} colonists remain aboard.",
                             "event",
                         )
+                        msg = self.quest_state.increment_optional("establish_colonies")
+                        if msg:
+                            self.quest_state.log_event("Objective Complete", msg, "event")
                     self.state = GameState.SYSTEM_VIEW
                 self.event_dialog_screen = None
                 self._check_game_over()
@@ -401,6 +452,46 @@ class Game:
                 self.state = GameState.TITLE
                 self.title_screen = TitleScreen()
                 self.credits_screen = None
+
+        elif self.state == GameState.DIPLOMACY and self.diplomacy_screen:
+            self.diplomacy_screen.update(dt)
+            if self.diplomacy_screen.next_state:
+                # Check if diplomacy triggered combat
+                if (self.diplomacy_screen.result
+                        and self.diplomacy_screen.result.triggers_combat
+                        and self.fleet):
+                    enemy = generate_enemy_fleet(
+                        danger=2,
+                        is_federation=False,
+                    )
+                    self._pending_enemy = enemy
+                    self._pending_combat_quest_flag = ""
+                    self.formation_screen = FormationScreen()
+                    self.formation_screen.setup(self.fleet)
+                    self.state = GameState.FORMATION_SETUP
+                    self.quest_state.log_event(
+                        f"Hostilities with {self.diplomacy_screen.faction.name}",
+                        f"Diplomatic negotiations with the {self.diplomacy_screen.faction.species_name} "
+                        f"have broken down. Their warships move to engage.",
+                        "combat",
+                    )
+                else:
+                    # Log diplomacy interaction
+                    if self.diplomacy_screen.result:
+                        result = self.diplomacy_screen.result
+                        verb = "succeeded" if result.success else "failed"
+                        self.quest_state.log_event(
+                            f"Diplomacy: {self.diplomacy_screen.faction.name}",
+                            f"Diplomatic action {verb}. {result.description[:100]}",
+                            "event",
+                        )
+                        # Track trade optional task
+                        if result.success and (result.metal_gained or result.energy_gained or result.rare_gained):
+                            msg = self.quest_state.increment_optional("trade_factions")
+                            if msg:
+                                self.quest_state.log_event("Objective Complete", msg, "event")
+                    self.state = self.diplomacy_screen.next_state
+                self.diplomacy_screen.next_state = None
 
         elif self.state == GameState.GAME_OVER:
             self._game_over_timer += dt
@@ -445,6 +536,10 @@ class Game:
             self.captains_log_screen.draw(self.screen)
         elif self.state == GameState.CREDITS and self.credits_screen:
             self.credits_screen.draw(self.screen)
+        elif self.state == GameState.DIPLOMACY and self.diplomacy_screen:
+            if self.system_view_screen:
+                self.system_view_screen.draw(self.screen)
+            self.diplomacy_screen.draw(self.screen)
         elif self.state == GameState.GAME_OVER:
             self._draw_game_over()
 
@@ -495,17 +590,28 @@ class Game:
 
         # Title
         title = font_big.render("C R Y O S L E E P", True, CYAN)
-        self.screen.blit(title, ((SCREEN_WIDTH - title.get_width()) // 2, 150))
+        self.screen.blit(title, ((SCREEN_WIDTH - title.get_width()) // 2, 130))
+
+        # Narrative line
+        narrative = font_small.render(
+            "The universe moves on without you. Stars are born and die in the time it takes to blink.",
+            True, LIGHT_GREY,
+        )
+        self.screen.blit(narrative, ((SCREEN_WIDTH - narrative.get_width()) // 2, 195))
 
         # Years elapsed
-        years_text = font_med.render(f"You awaken. {self._cryosleep_years:,} years have passed.", True, WHITE)
-        self.screen.blit(years_text, ((SCREEN_WIDTH - years_text.get_width()) // 2, 230))
+        years_text = font_med.render(
+            f"You awaken. {self._cryosleep_years:,} years have passed in frozen silence.",
+            True, WHITE,
+        )
+        self.screen.blit(years_text, ((SCREEN_WIDTH - years_text.get_width()) // 2, 240))
 
         # Colonist losses
-        y = 280
+        y = 290
         if self._cryosleep_colonist_loss > 0:
             loss_text = font_small.render(
-                f"Cryo failures: {self._cryosleep_colonist_loss:,} colonists lost",
+                f"Cryo-vault malfunctions claimed {self._cryosleep_colonist_loss:,} souls. "
+                f"Their names are added to a list that grows longer with every jump.",
                 True, RED_ALERT,
             )
             self.screen.blit(loss_text, ((SCREEN_WIDTH - loss_text.get_width()) // 2, y))
@@ -513,7 +619,9 @@ class Game:
 
         # Maintenance decay
         if self._cryosleep_decay_msgs:
-            decay_header = font_small.render("Systems degraded during transit:", True, AMBER)
+            decay_header = font_small.render(
+                "The ship groans. Systems have degraded in transit:", True, AMBER,
+            )
             self.screen.blit(decay_header, ((SCREEN_WIDTH - decay_header.get_width()) // 2, y))
             y += 26
             for msg in self._cryosleep_decay_msgs[:5]:
@@ -523,7 +631,7 @@ class Game:
 
         # Continue hint
         if self._cryosleep_timer > 2.0:
-            hint = font_small.render("Awakening...", True, LIGHT_GREY)
+            hint = font_small.render("Consciousness returns...", True, LIGHT_GREY)
             self.screen.blit(hint, ((SCREEN_WIDTH - hint.get_width()) // 2, SCREEN_HEIGHT - 80))
 
     # ------------------------------------------------------------------
@@ -631,14 +739,32 @@ class Game:
         from .models.quest import EndingType
 
         endings = {
-            EndingType.FLEET_DESTROYED: ("YOUR FLEET HAS BEEN DESTROYED", RED_ALERT,
-                "The last hope of humanity drifts silently through the void..."),
-            EndingType.COLONIST_COLLAPSE: ("COLONIST POPULATION CRITICAL", RED_ALERT,
-                "With fewer than 15,000 colonists, humanity cannot sustain itself."),
-            EndingType.COLONY_SUCCESS: ("A NEW HOME", HULL_GREEN,
-                "Against all odds, humanity has found its place among the stars."),
-            EndingType.TRUE_ENDING: ("BEYOND THE GATEWAY", CYAN,
-                "Ninurta is defeated. Through the gateway, Andromeda awaits. Humanity endures."),
+            EndingType.FLEET_DESTROYED: (
+                "YOUR FLEET HAS BEEN DESTROYED", RED_ALERT,
+                "The last hope of humanity drifts silently through the void, "
+                "a tomb of steel and frozen dreams. In a thousand years, "
+                "perhaps some alien archaeologist will find the wreckage "
+                "and wonder what manner of beings built such a vessel."
+            ),
+            EndingType.COLONIST_COLLAPSE: (
+                "COLONIST POPULATION CRITICAL", RED_ALERT,
+                "With fewer than 15,000 colonists, genetic diversity has collapsed. "
+                "The crew maintains the ship as a monument to what was lost, "
+                "but the species they were born to save is already gone."
+            ),
+            EndingType.COLONY_SUCCESS: (
+                "A NEW HOME", HULL_GREEN,
+                "Against impossible odds, humanity has planted its roots once more. "
+                "From the ashes of a dead civilisation, new cities rise under alien skies. "
+                "The old federation is a memory, but its children endure."
+            ),
+            EndingType.TRUE_ENDING: (
+                "BEYOND THE GATEWAY", CYAN,
+                "Ninurta falls silent at last. The ancient gateway hums with power "
+                "as your fleet crosses the threshold to Andromeda. Behind you, "
+                "the Milky Way fades — a graveyard of gods and empires. Ahead, "
+                "a galaxy untouched by ruin. Humanity endures."
+            ),
         }
 
         title, color, desc = endings.get(
@@ -648,20 +774,36 @@ class Game:
 
         # Title
         title_surf = self._game_over_font.render(title, True, color)
-        title_rect = title_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 40))
+        title_rect = title_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 60))
         self.screen.blit(title_surf, title_rect)
 
-        # Description
-        font_desc = pygame.font.Font(None, 30)
-        desc_surf = font_desc.render(desc, True, LIGHT_GREY)
-        desc_rect = desc_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
-        self.screen.blit(desc_surf, desc_rect)
+        # Description (word-wrapped)
+        font_desc = pygame.font.Font(None, 28)
+        words = desc.split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            test = f"{current} {word}".strip()
+            if font_desc.size(test)[0] > SCREEN_WIDTH - 200:
+                lines.append(current)
+                current = word
+            else:
+                current = test
+        if current:
+            lines.append(current)
+
+        y = SCREEN_HEIGHT // 2
+        for line in lines:
+            line_surf = font_desc.render(line, True, LIGHT_GREY)
+            line_rect = line_surf.get_rect(center=(SCREEN_WIDTH // 2, y))
+            self.screen.blit(line_surf, line_rect)
+            y += 26
 
         # Continue prompt
         if self._game_over_timer > 2.0:
             font_hint = pygame.font.Font(None, 24)
             hint = font_hint.render("Press any key to exit", True, LIGHT_GREY)
-            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 70))
+            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100))
             self.screen.blit(hint, hint_rect)
 
 

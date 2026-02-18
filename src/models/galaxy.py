@@ -52,6 +52,7 @@ class SystemObject:
     danger_level: int = 0  # 0 = safe, 1–5 = increasing risk
     loot_value: int = 0  # Resource reward for surveying/salvaging
     special_tag: str = ""  # Quest-critical tag: "earth", "gateway", "ninurta"
+    faction_id: str = ""  # Owning alien faction ID, if any
 
 
 @dataclass
@@ -67,6 +68,7 @@ class StarSystem:
     connections: list[int] = field(default_factory=list)  # IDs of connected systems
     visited: bool = False
     danger_level: int = 0  # Overall system danger (0–5)
+    faction_id: str = ""  # Controlling faction ID, if any
 
 
 # ---------------------------------------------------------------------------
@@ -671,3 +673,66 @@ class Galaxy:
             self.systems[system_id].visited = True
             return True
         return False
+
+
+def assign_factions_to_systems(
+    systems: list[StarSystem],
+    factions: list,
+    rng: random.Random | None = None,
+) -> None:
+    """Assign alien factions to clusters of systems in the galaxy.
+
+    Each faction claims a 'home' system and spreads to adjacent systems.
+    Inhabited planets and alien outposts in claimed systems get the
+    faction's ID.
+    """
+    if rng is None:
+        rng = random.Random()
+    if not factions:
+        return
+
+    # Exclude starting system (index 0) and the last few (quest systems)
+    candidates = [s for s in systems if s.id not in (0,) and not s.objects or not any(
+        o.special_tag for o in s.objects
+    )]
+    candidates = [s for s in systems[1:] if not any(o.special_tag for o in s.objects)]
+
+    rng.shuffle(candidates)
+
+    for i, faction in enumerate(factions):
+        if i >= len(candidates):
+            break
+
+        # Claim home system
+        home = candidates[i]
+        home.faction_id = faction.id
+        faction.systems_owned.append(home.id)
+
+        # Spread to 2–5 connected systems
+        spread_count = rng.randint(2, min(5, len(home.connections)))
+        for conn_id in home.connections[:spread_count]:
+            conn_sys = systems[conn_id]
+            if conn_sys.id == 0 or conn_sys.faction_id:
+                continue  # Don't overwrite or claim start
+            if any(o.special_tag for o in conn_sys.objects):
+                continue  # Don't claim quest systems
+            conn_sys.faction_id = faction.id
+            faction.systems_owned.append(conn_sys.id)
+
+        # Tag relevant objects in owned systems
+        for sys_id in faction.systems_owned:
+            system = systems[sys_id]
+            for obj in system.objects:
+                if obj.obj_type.value in ("alien_outpost", "planet"):
+                    # Inhabited planets and outposts belong to the faction
+                    if obj.obj_type.value == "alien_outpost" or (
+                        obj.obj_type.value == "planet"
+                        and "inhabited" in obj.name.lower()
+                        or "settled" in obj.name.lower()
+                        or "colony" in obj.name.lower()
+                        or "trade hub" in obj.name.lower()
+                        or "fortified" in obj.name.lower()
+                        or "homeworld" in obj.name.lower()
+                        or "populous" in obj.name.lower()
+                    ):
+                        obj.faction_id = faction.id

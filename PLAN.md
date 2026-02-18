@@ -1,14 +1,16 @@
 GAME IDEA
 
 The game is a real time strategy game where you command a massive
-arkship that contains the last surviving remnant of humanity and our
+arkship that contains the last surviving remnant of humanity and its
 fleet across a galaxy built on our ruins, looking for a place to call
 the new home for what is left. Your only goal is to save the human
 species, and it will be an arduous task. Most planets are already
 inhabited by new upstart civilisations who look to our advanced
 technology with greed and hunger. While some may be willing to trade to
 gain access to our secrets, just as many will try to take advantage of
-our state as a shattered remnant.
+our state as a shattered remnant. Habitation on an already claimed world
+will be perceived as an act of war, and we will be hunted ruthlessly by
+the new civilisations if we play our cards wrong.
 
 While on your journey there will be shipwrecks and remnants of the old
 federation that used to be the dominant force in the known universe, but
@@ -52,7 +54,8 @@ drive).
 
 Included must be a sort of captain's log, containing lore and optional
 tasks (connected to random events) that may provide either lore,
-resources, or both.
+resources, or both. Remember, this must be integrated to the the rest of
+the game, from events to anything else.
 
 Mothership:
 
@@ -204,6 +207,38 @@ attack by intercepting the orbit of your enemy and firing the weapons
 while they fire theirs. You set up the actions of a ship 2 turns in
 advance during battle but the mothership is directly controlled by you,
 with there being no wait for turns.
+
+Alien civilisations and colonisation:
+
+After the fall of mankind and the thousands of years passed, many
+upstart alien civilisations have risen. Their position on the star map
+is shown clearly, and they are procedurally generated in specific areas.
+They can be communicated with via a diplomacy system by interacting with
+any station, planet, etc. owned by them. The diplomacy window is
+primarily focused on the local inhabitants of a settlement (whether it
+be an entire planet or a small station), but your interactions with the
+locals may improve or damage relations with the broader civilisation
+they belong to. The new alien civilisations may be made up of various
+species, tech levels, and with varying cultures. Some may be an empire
+of a single species, xenophobic and militant in their expansion. Others
+could be a peaceful federation that aims to bring all species together
+in unity and peace. This must be accounted for and designed.
+
+All habitable worlds have already been colonised by the alien, so it is
+impossible to encounter a potential colony without coming across
+inhabitants who have claimed it already taken it. This means that
+colonisation of a liveable world is impossible, meaning that we must
+take the intensive and agonising task of either terraforming a single
+world over the course of an entire game (meaning that the player must
+return to it repeatedly to it to progress the terraforming with new raw
+resources), or to survey many, many worlds to find one that is both
+inhabitable and uninhabited.
+
+Speaking of surveying planets, the worlds that can be surveyed can
+either have a light scan (the standard, which only requires a single
+click), or a deep survey, which requires an entire gameplay loop and map
+of the surface of the planet. This deep survey system must be deep and
+engaging.
 
 The true story:
 

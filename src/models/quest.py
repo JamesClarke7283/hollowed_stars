@@ -74,14 +74,117 @@ class LogEntry:
 
 
 @dataclass
+class QuestTask:
+    """A trackable quest objective shown in the captain's log."""
+
+    title: str
+    description: str
+    required_flag: QuestFlag | None = None  # Flag that marks this complete
+    prerequisite_flag: QuestFlag | None = None  # Must have this flag to see
+
+
+@dataclass
+class OptionalTask:
+    """An optional side-objective tracked in the captain's log."""
+
+    task_id: str
+    title: str
+    description: str
+    target: int = 1
+    progress: int = 0
+    reward_text: str = ""
+
+    @property
+    def completed(self) -> bool:
+        return self.progress >= self.target
+
+
+# Ordered main-quest objectives
+QUEST_TASKS: list[QuestTask] = [
+    QuestTask(
+        "Defeat a Federation Fleet",
+        "Engage and destroy an automated federation patrol to recover a Class 4 Identification Code.",
+        required_flag=QuestFlag.CLASS_4_ID_CODE,
+    ),
+    QuestTask(
+        "Discover Earth",
+        "The old homeworld lies waiting. Use the Class 4 ID Code to locate it.",
+        required_flag=QuestFlag.DISCOVERED_EARTH,
+        prerequisite_flag=QuestFlag.CLASS_4_ID_CODE,
+    ),
+    QuestTask(
+        "Reclaim the Signal of Dawn",
+        "Defeat Earth's ancient defense fleet to claim the old federation flagship.",
+        required_flag=QuestFlag.DEFEATED_EARTH_DEFENSE,
+        prerequisite_flag=QuestFlag.DISCOVERED_EARTH,
+    ),
+    QuestTask(
+        "Reach the Trans-Galactic Gateway",
+        "The Signal of Dawn carries a Class 1 ID Code. Use it to find the Gateway.",
+        required_flag=QuestFlag.REACHED_GATEWAY,
+        prerequisite_flag=QuestFlag.UNLOCKED_SIGNAL_OF_DAWN,
+    ),
+    QuestTask(
+        "Destroy Ninurta",
+        "The sleeping god must be destroyed before you can pass through the Gateway.",
+        required_flag=QuestFlag.DEFEATED_NINURTA,
+        prerequisite_flag=QuestFlag.REACHED_GATEWAY,
+    ),
+    QuestTask(
+        "Cross to Andromeda",
+        "With Ninurta destroyed, pass through the Gateway to a new galaxy. The true ending.",
+        required_flag=QuestFlag.CROSSED_TO_ANDROMEDA,
+        prerequisite_flag=QuestFlag.DEFEATED_NINURTA,
+    ),
+]
+
+# Optional side-objectives that can be triggered by events
+OPTIONAL_TASK_TEMPLATES: list[OptionalTask] = [
+    OptionalTask(
+        "explore_derelicts", "Salvage Operations",
+        "Explore 3 derelict vessels for salvageable technology.",
+        target=3, reward_text="Salvage expertise improved.",
+    ),
+    OptionalTask(
+        "survey_anomalies", "Anomaly Researcher",
+        "Investigate 3 spatial anomalies.",
+        target=3, reward_text="Sensor calibration data acquired.",
+    ),
+    OptionalTask(
+        "establish_colonies", "Colony Builder",
+        "Establish 2 colonies across the galaxy.",
+        target=2, reward_text="Humanity's foothold grows stronger.",
+    ),
+    OptionalTask(
+        "trade_factions", "Galactic Trader",
+        "Conduct successful trade with 3 alien factions.",
+        target=3, reward_text="Trade networks established.",
+    ),
+]
+
+
+@dataclass
 class QuestState:
     """Tracks quest progression and discovered lore."""
 
     flags: set[QuestFlag] = field(default_factory=set)
     lore_entries: list[LoreEntry] = field(default_factory=list)
     log_entries: list[LogEntry] = field(default_factory=list)
+    optional_tasks: list[OptionalTask] = field(default_factory=list)
     colonies_established: int = 0
     turn: int = 0
+
+    @property
+    def active_tasks(self) -> list[tuple[QuestTask, bool]]:
+        """Return visible quest tasks as (task, is_completed) pairs."""
+        result: list[tuple[QuestTask, bool]] = []
+        for task in QUEST_TASKS:
+            # Show task if no prerequisite or if prerequisite is met
+            if task.prerequisite_flag is not None and task.prerequisite_flag not in self.flags:
+                continue
+            completed = task.required_flag is not None and task.required_flag in self.flags
+            result.append((task, completed))
+        return result
 
     def set_flag(self, flag: QuestFlag) -> None:
         self.flags.add(flag)
@@ -109,6 +212,22 @@ class QuestState:
         self.add_log(LogEntry(
             turn=self.turn, title=title, text=text, category=category,
         ))
+
+    def ensure_optional_tasks(self) -> None:
+        """Ensure optional tasks are initialized (once)."""
+        if not self.optional_tasks:
+            import copy
+            self.optional_tasks = [copy.deepcopy(t) for t in OPTIONAL_TASK_TEMPLATES]
+
+    def increment_optional(self, task_id: str, amount: int = 1) -> str:
+        """Increment progress on an optional task. Returns completion message or empty."""
+        self.ensure_optional_tasks()
+        for task in self.optional_tasks:
+            if task.task_id == task_id and not task.completed:
+                task.progress = min(task.progress + amount, task.target)
+                if task.completed:
+                    return f"Optional objective complete: {task.title}"
+        return ""
 
     @property
     def can_reach_earth(self) -> bool:

@@ -136,6 +136,9 @@ class SystemViewScreen:
         # Event trigger
         self.pending_event: Event | None = None
 
+        # Diplomacy trigger — faction_id for game.py to look up
+        self.pending_diplomacy_faction_id: str = ""
+
         # Survey result message
         self._message: str = ""
         self._message_timer: float = 0.0
@@ -151,6 +154,10 @@ class SystemViewScreen:
                 self.next_state = GameState.STAR_MAP
             elif event.key == pygame.K_RETURN and self.selected_object is not None:
                 self._survey_object(self.selected_object)
+            elif event.key == pygame.K_d and self.selected_object is not None:
+                self._try_diplomacy(self.selected_object)
+            elif event.key == pygame.K_p:
+                self._send_scout_probe()
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             self._handle_click(event.pos)
 
@@ -223,8 +230,14 @@ class SystemViewScreen:
             msg_rect = msg_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 80))
             surface.blit(msg_surf, msg_rect)
 
-        # Back hint
-        hint = self.font_small.render("ESC / M — return to star map", True, LIGHT_GREY)
+        # Keybind hints
+        hints = ["ESC/M — star map", "ENTER — survey"]
+        if self.fleet.scouts:
+            hints.append("P — scout probe")
+        if self.selected_object and self._can_diplomacy(self.selected_object):
+            hints.append("D — diplomacy")
+        hint_text = "   ".join(hints)
+        hint = self.font_small.render(hint_text, True, LIGHT_GREY)
         surface.blit(hint, (10, SCREEN_HEIGHT - 25))
 
     def _draw_object(self, surface: pygame.Surface, obj: SystemObject, scale: float) -> None:
@@ -370,15 +383,70 @@ class SystemViewScreen:
         status_surf = self.font_info.render(status, True, status_color)
         surface.blit(status_surf, (px + 12, py + 80))
 
+        # Faction info
+        if obj.faction_id:
+            fac_surf = self.font_small.render(f"Faction: {obj.faction_id}", True, AMBER)
+            surface.blit(fac_surf, (px + 12, py + 100))
+            desc_offset = 120
+        else:
+            desc_offset = 104
+
         # Wrap description
         desc_lines = self._wrap_text(obj.description, panel_w - 24)
         for i, line in enumerate(desc_lines[:3]):
             desc_surf = self.font_small.render(line, True, LIGHT_GREY)
-            surface.blit(desc_surf, (px + 12, py + 104 + i * 18))
+            surface.blit(desc_surf, (px + 12, py + desc_offset + i * 18))
 
         if not obj.surveyed:
             prompt = self.font_info.render("ENTER to survey", True, CYAN)
             surface.blit(prompt, (px + panel_w - prompt.get_width() - 12, py + panel_h - 26))
+        elif self._can_diplomacy(obj):
+            prompt = self.font_info.render("D — Diplomacy", True, CYAN)
+            surface.blit(prompt, (px + panel_w - prompt.get_width() - 12, py + panel_h - 26))
+
+    def _can_diplomacy(self, obj: SystemObject) -> bool:
+        """Check if this object supports a diplomacy interaction."""
+        if not obj.faction_id:
+            return False
+        return obj.obj_type in (ObjectType.ALIEN_OUTPOST, ObjectType.PLANET)
+
+    def _try_diplomacy(self, obj: SystemObject) -> None:
+        """Attempt to open diplomacy with the faction owning this object."""
+        if not self._can_diplomacy(obj):
+            self._message = "No faction to communicate with here."
+            self._message_color = LIGHT_GREY
+            self._message_timer = 2.0
+            return
+        self.pending_diplomacy_faction_id = obj.faction_id
+        self.next_state = GameState.DIPLOMACY
+
+    def _send_scout_probe(self) -> None:
+        """Send a scout ship to probe the system, revealing all objects."""
+        scouts = self.fleet.scouts
+        if not scouts:
+            self._message = "No scout ships available."
+            self._message_color = RED_ALERT
+            self._message_timer = 2.5
+            return
+
+        # Consume one scout
+        scout = scouts[0]
+        self.fleet.ships.remove(scout)
+
+        # Reveal all objects + reduce danger
+        revealed = 0
+        for obj in self._visible_objects():
+            if not obj.surveyed:
+                obj.surveyed = True
+                obj.danger_level = max(0, obj.danger_level - 1)
+                revealed += 1
+
+        self._message = (
+            f"Scout probe '{scout.name}' deployed! "
+            f"{revealed} objects revealed, danger reduced."
+        )
+        self._message_color = HULL_GREEN
+        self._message_timer = 4.0
 
     def _wrap_text(self, text: str, max_width: int) -> list[str]:
         words = text.split()

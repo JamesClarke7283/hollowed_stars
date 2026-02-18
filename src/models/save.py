@@ -34,6 +34,7 @@ from .ships import (
     WeaponSize,
     WeaponSlot,
 )
+from .inventory import Inventory
 
 SAVE_DIR = Path(user_data_dir("hollowed_stars"))
 SAVE_FILE = SAVE_DIR / "save.json"
@@ -123,7 +124,7 @@ def _fleet_to_dict(f: Fleet) -> dict:
             "rare_materials": f.resources.rare_materials,
         },
         "colonists": f.colonists,
-        "weapon_inventory": f.weapon_inventory,
+        "inventory": f.inventory.to_dict_list(),
     }
 
 
@@ -138,7 +139,7 @@ def _fleet_from_dict(d: dict) -> Fleet:
             rare_materials=r["rare_materials"],
         ),
         colonists=d["colonists"],
-        weapon_inventory=d.get("weapon_inventory", []),
+        inventory=Inventory.from_dict_list(d.get("inventory", [])),
     )
 
 

@@ -37,6 +37,7 @@ from ..models.ships import (
     WeaponSize,
 )
 from ..models.weapons import CRAFTABLE_WEAPONS, Weapon, weapons_for_size
+from ..models.inventory import EquipmentItem, EquipmentTier
 from ..states import GameState
 
 
@@ -266,8 +267,8 @@ class MothershipScreen:
         elif key in (pygame.K_RETURN, pygame.K_SPACE) and available:
             wpn = available[self.equip_weapon_idx]
             # Check inventory first (free equip from stockpile)
-            if wpn.name in self.fleet.weapon_inventory:
-                self.fleet.weapon_inventory.remove(wpn.name)
+            if self.fleet.inventory.has_item(wpn.name):
+                self.fleet.inventory.remove_item(wpn.name)
                 slot.equipped = wpn.name
                 self._message = f"Equipped {wpn.name} (from inventory)"
                 self._message_color = HULL_GREEN
@@ -307,7 +308,14 @@ class MothershipScreen:
                 r.metal -= wpn.build_cost_metal
                 r.energy -= wpn.build_cost_energy
                 r.rare_materials -= wpn.build_cost_rare
-                self.fleet.weapon_inventory.append(wpn.name)
+                self.fleet.inventory.add_item(EquipmentItem(
+                    name=wpn.name,
+                    item_type="weapon",
+                    tier=EquipmentTier.STANDARD,
+                    weapon_size=wpn.size,
+                    description=f"DMG:{wpn.damage} ACC:{int(wpn.accuracy*100)}%",
+                    stats={"damage": wpn.damage, "accuracy": wpn.accuracy},
+                ))
                 self._message = f"Crafted {wpn.name} → inventory"
                 self._message_color = HULL_GREEN
                 self._message_timer = 2.0
@@ -629,7 +637,7 @@ class MothershipScreen:
             (f"Energy: {self.fleet.resources.energy:,}", ENERGY_COLOR),
             (f"Rare: {self.fleet.resources.rare_materials:,}", RARE_COLOR),
             (f"Ships: {self.fleet.total_ships}/{self.fleet.mothership.hangar_capacity}", CYAN),
-            (f"Wpn Inv: {len(self.fleet.weapon_inventory)}", AMBER),
+            (f"Wpn Inv: {self.fleet.inventory.weapon_count}", AMBER),
         ]
         x = 30
         for text, color in items:
@@ -825,7 +833,7 @@ class MothershipScreen:
         header = self.font_name.render("CRAFT WEAPONS", True, AMBER)
         surface.blit(header, (x, y0))
 
-        inv_text = f"Inventory: {len(self.fleet.weapon_inventory)} weapon(s)"
+        inv_text = f"Inventory: {self.fleet.inventory.weapon_count} weapon(s)"
         inv_surf = self.font_info.render(inv_text, True, CYAN)
         surface.blit(inv_surf, (x + 240, y0 + 4))
 
@@ -860,7 +868,7 @@ class MothershipScreen:
             surface.blit(stat_surf, (x + 520, y))
 
             # Show inventory count for this weapon
-            count = self.fleet.weapon_inventory.count(wpn.name)
+            count = self.fleet.inventory.count_item(wpn.name)
             if count > 0:
                 cnt_surf = self.font_small.render(f"x{count}", True, HULL_GREEN)
                 surface.blit(cnt_surf, (x + 700, y))

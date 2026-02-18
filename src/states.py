@@ -18,5 +18,7 @@ class GameState(enum.Enum):
     GAME_OVER = "game_over"
     CREDITS = "credits"
     DIPLOMACY = "diplomacy"
+    COLONY_MANAGEMENT = "colony_management"
+    DEEP_SURVEY = "deep_survey"
 
 

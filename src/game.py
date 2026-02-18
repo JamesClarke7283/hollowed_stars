@@ -13,12 +13,15 @@ from .models.events import get_event_for_object_type
 from .models.galaxy import Galaxy, assign_factions_to_systems
 from .models.diplomacy import Faction, generate_factions
 from .models.mothership_systems import ShipSystem, apply_ftl_decay, create_default_systems
+from .models.colony import ColonyManager
 from .models.quest import LoreEntry, QuestFlag, QuestState
 from .models.save import delete_save, load_game, save_game
 from .models.ships import SIGNAL_OF_DAWN, Fleet
 from .screens.combat import CombatScreen
 from .screens.captains_log import CaptainsLogScreen
+from .screens.colony_screen import ColonyScreen
 from .screens.credits import CreditsScreen
+from .screens.deep_survey import DeepSurveyScreen
 from .screens.diplomacy import DiplomacyScreen
 from .screens.event_dialog import EventDialogScreen
 from .screens.formation_screen import FormationScreen
@@ -65,6 +68,11 @@ class Game:
         self.captains_log_screen: CaptainsLogScreen | None = None
         self.credits_screen: CreditsScreen | None = None
         self.diplomacy_screen: DiplomacyScreen | None = None
+        self.colony_screen: ColonyScreen | None = None
+        self.deep_survey_screen: DeepSurveyScreen | None = None
+
+        # Colony management
+        self.colony_manager = ColonyManager()
 
         # Faction data (generated alongside galaxy)
         self.factions: list[Faction] = []
@@ -148,6 +156,10 @@ class Game:
                 self.credits_screen.handle_events(event)
             elif self.state == GameState.DIPLOMACY and self.diplomacy_screen:
                 self.diplomacy_screen.handle_events(event)
+            elif self.state == GameState.DEEP_SURVEY and self.deep_survey_screen:
+                self.deep_survey_screen.handle_events(event)
+            elif self.state == GameState.COLONY_MANAGEMENT and self.colony_screen:
+                self.colony_screen.handle_events(event)
             elif self.state == GameState.GAME_OVER:
                 if event.type == pygame.KEYDOWN:
                     self.running = False
@@ -177,6 +189,12 @@ class Game:
             self.title_screen = TitleScreen()
         elif self.state == GameState.DIPLOMACY:
             self.state = GameState.SYSTEM_VIEW
+        elif self.state == GameState.DEEP_SURVEY:
+            self.state = GameState.SYSTEM_VIEW
+            self.deep_survey_screen = None
+        elif self.state == GameState.COLONY_MANAGEMENT:
+            self.state = GameState.SYSTEM_VIEW
+            self.colony_screen = None
 
     def _update(self, dt: float) -> None:
         self.starfield.update(dt)
@@ -249,6 +267,7 @@ class Game:
                 elif self.star_map_screen.next_state == GameState.SYSTEM_VIEW:
                     self.system_view_screen = SystemViewScreen(
                         self.galaxy, self.fleet, self.quest_state,
+                        colony_manager=self.colony_manager,
                     )
 
                     # Apply FTL maintenance decay when traveling
@@ -326,6 +345,10 @@ class Game:
                     fid = self.system_view_screen.pending_diplomacy_faction_id
                     faction = next((f for f in self.factions if f.id == fid), None)
                     if faction:
+                        # Set local settlement context
+                        sel_obj = self.system_view_screen.selected_object
+                        if sel_obj:
+                            faction.settlement_name = f"{sel_obj.name} Settlement"
                         self.diplomacy_screen = DiplomacyScreen(faction, self.fleet)
                         self.state = GameState.DIPLOMACY
                     else:
@@ -333,6 +356,28 @@ class Game:
                     self.system_view_screen.pending_diplomacy_faction_id = ""
                 elif next_st == GameState.STAR_MAP:
                     self.state = GameState.STAR_MAP
+                elif next_st == GameState.DEEP_SURVEY:
+                    obj = self.system_view_screen.pending_deep_survey_object
+                    if obj:
+                        self.deep_survey_screen = DeepSurveyScreen(
+                            planet_name=obj.name,
+                            system_id=self.galaxy.current_system.id,
+                            survey_seed=obj.survey_seed,
+                            fleet=self.fleet,
+                            scout_count=len(self.fleet.scouts),
+                            sensor_level=1,
+                        )
+                        self.state = GameState.DEEP_SURVEY
+                        self.system_view_screen.pending_deep_survey_object = None
+                    else:
+                        self.state = GameState.SYSTEM_VIEW
+                elif next_st == GameState.COLONY_MANAGEMENT:
+                    self.colony_screen = ColonyScreen(
+                        self.colony_manager, self.fleet,
+                        focus_system=self.galaxy.current_system.id,
+                    )
+                    self.state = GameState.COLONY_MANAGEMENT
+                    self.system_view_screen.pending_colony_management = False
                 else:
                     self.state = next_st
 
@@ -493,6 +538,39 @@ class Game:
                     self.state = self.diplomacy_screen.next_state
                 self.diplomacy_screen.next_state = None
 
+        elif self.state == GameState.DEEP_SURVEY and self.deep_survey_screen:
+            self.deep_survey_screen.update(dt)
+            if self.deep_survey_screen.next_state:
+                # Mark planet as deep-surveyed
+                if self.system_view_screen:
+                    for obj in self.system_view_screen.system.objects:
+                        if obj.name == self.deep_survey_screen.planet_name:
+                            obj.deep_surveyed = True
+                            break
+                # If colony site was found, create a colony
+                if self.deep_survey_screen.colony_site_found:
+                    sid = self.deep_survey_screen.system_id
+                    pname = self.deep_survey_screen.planet_name
+                    if not self.colony_manager.get_colony_at(sid):
+                        self.colony_manager.start_colony(
+                            sid, pname, self.quest_state.turn,
+                        )
+                        self.quest_state.log_event(
+                            f"Colony Site: {pname}",
+                            f"Deep survey complete. A viable colony site has been "
+                            f"identified on {pname}. Visit the Colony Manager (C) "
+                            f"to begin development.",
+                            "event",
+                        )
+                self.state = self.deep_survey_screen.next_state
+                self.deep_survey_screen = None
+
+        elif self.state == GameState.COLONY_MANAGEMENT and self.colony_screen:
+            self.colony_screen.update(dt)
+            if self.colony_screen.next_state:
+                self.state = self.colony_screen.next_state
+                self.colony_screen = None
+
         elif self.state == GameState.GAME_OVER:
             self._game_over_timer += dt
 
@@ -540,6 +618,12 @@ class Game:
             if self.system_view_screen:
                 self.system_view_screen.draw(self.screen)
             self.diplomacy_screen.draw(self.screen)
+        elif self.state == GameState.DEEP_SURVEY and self.deep_survey_screen:
+            self.deep_survey_screen.draw(self.screen)
+        elif self.state == GameState.COLONY_MANAGEMENT and self.colony_screen:
+            self.colony_screen.draw(self.screen)
+            if self.fleet:
+                self.hud.draw(self.screen, self.fleet)
         elif self.state == GameState.GAME_OVER:
             self._draw_game_over()
 

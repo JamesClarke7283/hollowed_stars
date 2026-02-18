@@ -49,6 +49,9 @@ class EventDialogScreen:
         # Colony establishment flag (set when colonists are sent to establish a colony)
         self.colony_established = False
 
+        # Colony site found flag (START_COLONY — new multi-stage colony)
+        self.colony_site_found = False
+
         # Quest flag resolved from outcome
         self.resolved_quest_flag: str = ""
 
@@ -212,6 +215,22 @@ class EventDialogScreen:
             self.fleet.mothership.max_hull,
         ))
 
+        # START_COLONY — flag for game.py to create a Colony via ColonyManager
+        if outcome.outcome_type == EventOutcomeType.START_COLONY:
+            self.colony_site_found = True
+
+        # GAIN_EQUIPMENT — add item to fleet inventory
+        if outcome.outcome_type == EventOutcomeType.GAIN_EQUIPMENT and outcome.equipment_name:
+            from ..models.inventory import EquipmentItem, EquipmentTier
+            tier = EquipmentTier(outcome.equipment_tier)
+            item = EquipmentItem(
+                name=outcome.equipment_name,
+                item_type="weapon" if any(w in outcome.equipment_name.lower() for w in ("cannon", "laser", "railgun", "missile", "turret")) else "component",
+                tier=tier,
+                description=outcome.description[:120],
+            )
+            self.fleet.inventory.add_item(item)
+
     def _outcome_color(self, outcome_type: EventOutcomeType) -> tuple[int, int, int]:
         colors = {
             EventOutcomeType.GAIN_RESOURCES: HULL_GREEN,
@@ -225,6 +244,8 @@ class EventDialogScreen:
             EventOutcomeType.QUEST_FLAG: AMBER,
             EventOutcomeType.NOTHING: LIGHT_GREY,
             EventOutcomeType.ESTABLISH_COLONY: HULL_GREEN,
+            EventOutcomeType.START_COLONY: CYAN,
+            EventOutcomeType.GAIN_EQUIPMENT: AMBER,
         }
         return colors.get(outcome_type, WHITE)
 
@@ -251,6 +272,11 @@ class EventDialogScreen:
             rewards.append(("⚔ Combat incoming!", RED_ALERT))
         if outcome.outcome_type == EventOutcomeType.ESTABLISH_COLONY:
             rewards.append(("🏠 Colony established!", HULL_GREEN))
+        if outcome.outcome_type == EventOutcomeType.START_COLONY:
+            rewards.append(("🌍 Colony site identified!", CYAN))
+        if outcome.outcome_type == EventOutcomeType.GAIN_EQUIPMENT and outcome.equipment_name:
+            tier = outcome.equipment_tier.title()
+            rewards.append((f"⚙ {outcome.equipment_name} [{tier}]", AMBER))
         return rewards
 
     def _wrap_text(self, text: str, font: pygame.font.Font, max_width: int) -> list[str]:

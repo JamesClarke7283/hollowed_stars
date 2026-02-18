@@ -115,10 +115,11 @@ def _planet_color(name: str) -> tuple[int, int, int]:
 class SystemViewScreen:
     """In-system exploration: star and orbiting objects."""
 
-    def __init__(self, galaxy: Galaxy, fleet: Fleet, quest_state: QuestState | None = None) -> None:
+    def __init__(self, galaxy: Galaxy, fleet: Fleet, quest_state: QuestState | None = None, colony_manager: "ColonyManager | None" = None) -> None:
         self.galaxy = galaxy
         self.fleet = fleet
         self.quest_state = quest_state or QuestState()
+        self._colony_manager = colony_manager
         self.font_title = pygame.font.Font(None, 40)
         self.font_name = pygame.font.Font(None, 28)
         self.font_info = pygame.font.Font(None, 24)
@@ -144,6 +145,12 @@ class SystemViewScreen:
         self._message_timer: float = 0.0
         self._message_color: tuple[int, int, int] = WHITE
 
+        # Deep survey trigger
+        self.pending_deep_survey_object: SystemObject | None = None
+
+        # Colony management trigger
+        self.pending_colony_management: bool = False
+
     @property
     def system(self) -> StarSystem:
         return self.galaxy.current_system
@@ -152,14 +159,45 @@ class SystemViewScreen:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE or event.key == pygame.K_m:
                 self.next_state = GameState.STAR_MAP
+            elif event.key in (pygame.K_UP, pygame.K_DOWN):
+                self._cycle_selection(event.key == pygame.K_DOWN)
             elif event.key == pygame.K_RETURN and self.selected_object is not None:
                 self._survey_object(self.selected_object)
             elif event.key == pygame.K_d and self.selected_object is not None:
                 self._try_diplomacy(self.selected_object)
             elif event.key == pygame.K_p:
                 self._send_scout_probe()
+            elif event.key == pygame.K_s and self.selected_object is not None:
+                self._try_deep_survey(self.selected_object)
+            elif event.key == pygame.K_c:
+                if self._colony_manager and self._colony_manager.active_count > 0:
+                    self.pending_colony_management = True
+                    self.next_state = GameState.COLONY_MANAGEMENT
+                else:
+                    self._message = "No active colonies. Find colony sites through deep surveys."
+                    self._message_color = LIGHT_GREY
+                    self._message_timer = 2.5
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             self._handle_click(event.pos)
+
+    def _cycle_selection(self, forward: bool) -> None:
+        """Cycle through system objects with arrow keys."""
+        visible = self._visible_objects()
+        if not visible:
+            return
+        if self.selected_object is None:
+            self.selected_object = visible[0]
+            return
+        try:
+            idx = visible.index(self.selected_object)
+        except ValueError:
+            self.selected_object = visible[0]
+            return
+        if forward:
+            idx = (idx + 1) % len(visible)
+        else:
+            idx = (idx - 1) % len(visible)
+        self.selected_object = visible[idx]
 
     def update(self, dt: float) -> None:
         self.timer += dt
@@ -230,12 +268,26 @@ class SystemViewScreen:
             msg_rect = msg_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 80))
             surface.blit(msg_surf, msg_rect)
 
-        # Keybind hints
-        hints = ["ESC/M — star map", "ENTER — survey"]
+        # Keybind hints — contextual based on selected object type
+        hints = ["↑↓ select", "ESC — star map"]
+        if self.selected_object:
+            if self.selected_object.obj_type == ObjectType.PLANET:
+                if self.selected_object.surveyed:
+                    hints.append("S — deep survey")
+                else:
+                    hints.append("ENTER — orbital scan")
+            elif self.selected_object.obj_type == ObjectType.ASTEROID_FIELD:
+                if not self.selected_object.surveyed:
+                    hints.append("ENTER — mine")
+            else:
+                if not self.selected_object.surveyed:
+                    hints.append("ENTER — investigate")
         if self.fleet.scouts:
-            hints.append("P — scout probe")
+            hints.append("P — probe")
         if self.selected_object and self._can_diplomacy(self.selected_object):
             hints.append("D — diplomacy")
+        if self._colony_manager and self._colony_manager.active_count > 0:
+            hints.append("C — colonies")
         hint_text = "   ".join(hints)
         hint = self.font_small.render(hint_text, True, LIGHT_GREY)
         surface.blit(hint, (10, SCREEN_HEIGHT - 25))
@@ -291,7 +343,11 @@ class SystemViewScreen:
 
     def _survey_object(self, obj: SystemObject) -> None:
         if obj.surveyed:
-            self._message = f"{obj.name} already surveyed."
+            # Planets: re-pressing Enter on surveyed planet auto-opens deep survey
+            if obj.obj_type == ObjectType.PLANET:
+                self._try_deep_survey(obj)
+                return
+            self._message = f"{obj.name} already investigated."
             self._message_color = LIGHT_GREY
             self._message_timer = 2.0
             return
@@ -306,7 +362,14 @@ class SystemViewScreen:
                 self.next_state = GameState.EVENT_DIALOG
                 return
 
-        # Mining: asteroid fields yield resources scaled by mining bonus
+        # ---- PLANETS: orbital scan only, all content in deep survey ----
+        if obj.obj_type == ObjectType.PLANET:
+            self._message = f"Orbital scan of {obj.name} complete — press S for deep survey."
+            self._message_color = CYAN
+            self._message_timer = 4.0
+            return
+
+        # ---- ASTEROID FIELDS: direct mining ----
         if obj.obj_type == ObjectType.ASTEROID_FIELD:
             base_yield = obj.loot_value
             bonus = self.fleet.mining_bonus
@@ -322,19 +385,19 @@ class SystemViewScreen:
             self._message_timer = 3.5
             return
 
-        # Try to trigger a narrative event
+        # ---- SPACE OBJECTS: investigation via event dialog ----
         event = get_event_for_object_type(obj.obj_type.value)
         if event:
             self.pending_event = event
             self.next_state = GameState.EVENT_DIALOG
         else:
-            # Fallback: flat resource reward
+            # Fallback: flat salvage reward
             if obj.loot_value > 0:
                 self.fleet.resources.metal += obj.loot_value
-                self._message = f"Surveyed {obj.name} — salvaged {obj.loot_value} metal!"
+                self._message = f"Investigated {obj.name} — salvaged {obj.loot_value} metal."
                 self._message_color = HULL_GREEN
             else:
-                self._message = f"Surveyed {obj.name} — nothing of value."
+                self._message = f"Investigated {obj.name} — nothing useful found."
                 self._message_color = LIGHT_GREY
             self._message_timer = 3.0
 
@@ -398,7 +461,16 @@ class SystemViewScreen:
             surface.blit(desc_surf, (px + 12, py + desc_offset + i * 18))
 
         if not obj.surveyed:
-            prompt = self.font_info.render("ENTER to survey", True, CYAN)
+            if obj.obj_type == ObjectType.PLANET:
+                label = "ENTER — orbital scan"
+            elif obj.obj_type == ObjectType.ASTEROID_FIELD:
+                label = "ENTER — mine"
+            else:
+                label = "ENTER — investigate"
+            prompt = self.font_info.render(label, True, CYAN)
+            surface.blit(prompt, (px + panel_w - prompt.get_width() - 12, py + panel_h - 26))
+        elif obj.obj_type == ObjectType.PLANET:
+            prompt = self.font_info.render("S — Deep Survey", True, CYAN)
             surface.blit(prompt, (px + panel_w - prompt.get_width() - 12, py + panel_h - 26))
         elif self._can_diplomacy(obj):
             prompt = self.font_info.render("D — Diplomacy", True, CYAN)
@@ -447,6 +519,27 @@ class SystemViewScreen:
         )
         self._message_color = HULL_GREEN
         self._message_timer = 4.0
+
+    def _try_deep_survey(self, obj: SystemObject) -> None:
+        """Attempt to launch a deep survey of the selected planet."""
+        if obj.obj_type != ObjectType.PLANET:
+            self._message = "Deep surveys are only possible on planets."
+            self._message_color = RED_ALERT
+            self._message_timer = 2.5
+            return
+        if not obj.surveyed:
+            self._message = "Perform a standard survey first (Enter)."
+            self._message_color = AMBER
+            self._message_timer = 2.5
+            return
+        if obj.deep_surveyed:
+            self._message = "This planet has already been deep-surveyed."
+            self._message_color = LIGHT_GREY
+            self._message_timer = 2.5
+            return
+        # Trigger deep survey
+        self.pending_deep_survey_object = obj
+        self.next_state = GameState.DEEP_SURVEY
 
     def _wrap_text(self, text: str, max_width: int) -> list[str]:
         words = text.split()

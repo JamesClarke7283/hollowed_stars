@@ -25,6 +25,8 @@ class EventOutcomeType(enum.Enum):
     HULL_REPAIR = "hull_repair"
     QUEST_FLAG = "quest_flag"
     ESTABLISH_COLONY = "establish_colony"
+    START_COLONY = "start_colony"
+    GAIN_EQUIPMENT = "gain_equipment"
 
 
 @dataclass
@@ -42,6 +44,8 @@ class EventOutcome:
     quest_flag: str = ""
     combat_danger: int = 0
     combat_is_federation: bool = False
+    equipment_name: str = ""
+    equipment_tier: str = "standard"  # "standard", "alien", "federation"
 
 
 @dataclass
@@ -165,6 +169,38 @@ def _derelict_events() -> list[Event]:
                         "The advanced cryo-components will strengthen your own vaults. "
                         "Their occupants will never know what you chose.",
                         rare=120,
+                    ),
+                ),
+            ],
+        ),
+        Event(
+            title="Federation Weapons Cache",
+            description=(
+                "Sealed behind blast doors that took three breaching charges to open, "
+                "a pristine weapons locker. Federation military insignia — the old "
+                "kind, before the schism — embossed on every crate. The air inside is "
+                "vacuum-cold and perfectly preserved. Whatever war these were meant "
+                "for never came."
+            ),
+            choices=[
+                EventChoice(
+                    "Claim the weapons",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_EQUIPMENT,
+                        "Federation-grade autocannons, still factory-sealed. Your "
+                        "weapons officers handle them with something close to reverence. "
+                        "They were built to last millennia — and they have.",
+                        equipment_name="Federation Autocannon",
+                        equipment_tier="federation",
+                    ),
+                ),
+                EventChoice(
+                    "Strip the weapons for parts",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_RESOURCES,
+                        "The alloys alone are worth a fortune. Federation metallurgy "
+                        "remains unmatched by anything your foundries can produce.",
+                        metal=400, rare=150,
                     ),
                 ),
             ],
@@ -474,6 +510,72 @@ def _planet_events() -> list[Event]:
                 ),
             ],
         ),
+        Event(
+            title="Ancient Colony Beacon",
+            description=(
+                "A low-frequency signal pulses from beneath the planet's surface — "
+                "a colony beacon, pre-federation design, still broadcasting after "
+                "untold millennia. The ground around the transmitter is unusually "
+                "stable, the soil rich with organic compounds. Nature or design, "
+                "this site is ready for habitation."
+            ),
+            choices=[
+                EventChoice(
+                    "Mark as colony site",
+                    EventOutcome(
+                        EventOutcomeType.START_COLONY,
+                        "The beacon's coordinates are locked into the nav computer. "
+                        "This could be the foundation of something lasting — a place "
+                        "where humanity takes root again among the cold stars.",
+                    ),
+                ),
+                EventChoice(
+                    "Excavate the beacon for tech",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_RESOURCES,
+                        "The beacon's power cell alone is a marvel of engineering. "
+                        "Your engineers extract it carefully, along with memory cores "
+                        "containing fragments of pre-federation survey data.",
+                        energy=350, rare=100,
+                    ),
+                ),
+            ],
+        ),
+        Event(
+            title="Precursor Observatory",
+            description=(
+                "Half-buried in volcanic glass, a structure that predates the "
+                "federation by millennia. Its telescopes — if that's the right word "
+                "for devices that bend spacetime — still track objects across the "
+                "galaxy. The control systems respond to touch, as if they've been "
+                "waiting."
+            ),
+            choices=[
+                EventChoice(
+                    "Interface with the systems",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_EQUIPMENT,
+                        "A precursor sensor module detaches from the array with a "
+                        "soft click, as if offered. Your engineers cannot explain "
+                        "its principles, but it works — scanning further and deeper "
+                        "than anything in your inventory.",
+                        equipment_name="Precursor Sensor Array",
+                        equipment_tier="federation",
+                    ),
+                    success_chance=0.7,
+                ),
+                EventChoice(
+                    "Study from a safe distance",
+                    EventOutcome(
+                        EventOutcomeType.GAIN_RESOURCES,
+                        "Your scientists gather readings from outside the structure. "
+                        "Even the passive data is extraordinary — stellar cartography "
+                        "that reveals hidden system features.",
+                        rare=180, energy=200,
+                    ),
+                ),
+            ],
+        ),
     ]
 
 
@@ -772,8 +874,6 @@ _EVENT_POOLS: dict[str, list[Event]] = {
     "station_ruin": _derelict_events() + _lore_derelict_events(),
     "anomaly": _anomaly_events() + _lore_anomaly_events(),
     "alien_outpost": _alien_events(),
-    "planet": _planet_events(),
-    "asteroid_field": _planet_events(),
 }
 
 # Quest-critical event pools (keyed by special_tag)

@@ -30,6 +30,7 @@ class FactionTrait(enum.Enum):
     """Cultural traits that influence faction behaviour."""
 
     XENOPHOBIC = "xenophobic"       # Distrusts all outsiders
+    XENOPHILIC = "xenophilic"       # Welcomes and embraces outsiders
     MILITANT = "militant"           # Favours aggression and expansion
     MERCANTILE = "mercantile"       # Values trade above all
     PEACEFUL = "peaceful"           # Avoids conflict when possible
@@ -46,6 +47,8 @@ class DiplomacyAction(enum.Enum):
     THREATEN = "threaten"
     OFFER_ALLIANCE = "offer_alliance"
     REQUEST_PASSAGE = "request_passage"
+    BUY_SUPPLIES = "buy_supplies"
+    HIRE_GUIDES = "hire_guides"
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +90,10 @@ class Faction:
     known: bool = False       # Discovered through exploration
     systems_owned: list[int] = field(default_factory=list)  # StarSystem IDs
 
+    # Local settlement context (set when diplomacy opens)
+    settlement_name: str = ""
+    settlement_attitude: int = 0  # -50 to +50, local attitude
+
     @property
     def disposition(self) -> FactionDisposition:
         return _relation_to_disposition(self.relation)
@@ -94,6 +101,13 @@ class Faction:
     def adjust_relation(self, delta: int) -> None:
         """Change relation, clamped to [-100, +100]."""
         self.relation = max(-100, min(100, self.relation + delta))
+
+    def adjust_local(self, delta: int) -> None:
+        """Change local settlement attitude. Propagates 30% to global."""
+        self.settlement_attitude = max(-50, min(50, self.settlement_attitude + delta))
+        global_propagation = int(delta * 0.3)
+        if global_propagation != 0:
+            self.adjust_relation(global_propagation)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +141,7 @@ def resolve_diplomacy_action(
     is_mercantile = FactionTrait.MERCANTILE in faction.traits
     is_militant = FactionTrait.MILITANT in faction.traits
     is_xenophobic = FactionTrait.XENOPHOBIC in faction.traits
+    is_xenophilic = FactionTrait.XENOPHILIC in faction.traits
     is_religious = FactionTrait.RELIGIOUS in faction.traits
     is_peaceful = FactionTrait.PEACEFUL in faction.traits
 
@@ -139,7 +154,7 @@ def resolve_diplomacy_action(
                 f"Their comm channels crackle with threats.",
                 relation_change=-5,
             )
-        bonus = 1.5 if is_mercantile else 1.0
+        bonus = 1.5 if is_mercantile else (1.3 if is_xenophilic else 1.0)
         metal = int(rng.randint(150, 400) * bonus)
         energy = int(rng.randint(100, 300) * bonus)
         return DiplomacyResult(
@@ -147,7 +162,7 @@ def resolve_diplomacy_action(
             f"The {faction.species_name} are willing to trade. "
             f"Their merchants exchange alien-manufactured goods for "
             f"samples of your ancient technology.",
-            relation_change=10 if is_mercantile else 5,
+            relation_change=10 if is_mercantile else (12 if is_xenophilic else 5),
             metal_gained=metal,
             energy_gained=energy,
         )
@@ -160,7 +175,7 @@ def resolve_diplomacy_action(
                 f"your offer. They suspect a trap.",
                 relation_change=5,  # Slight warming even on failure
             )
-        rel_boost = 25 if is_religious else 15
+        rel_boost = 25 if is_religious else (20 if is_xenophilic else 15)
         rare = rng.randint(50, 150)
         return DiplomacyResult(
             True,
@@ -268,6 +283,49 @@ def resolve_diplomacy_action(
                 relation_change=3,
             )
 
+    elif action == DiplomacyAction.BUY_SUPPLIES:
+        # Local settlement supply purchase — smaller gains but always possible
+        if disp == FactionDisposition.HOSTILE:
+            return DiplomacyResult(
+                False,
+                f"The {faction.settlement_name or 'settlement'} market stalls "
+                f"close as your crew approaches. No one will deal with you here.",
+                relation_change=-3,
+            )
+        # Even neutral factions will sell supplies
+        metal = rng.randint(80, 200)
+        energy = rng.randint(50, 150)
+        settlement = faction.settlement_name or "this settlement"
+        return DiplomacyResult(
+            True,
+            f"You trade surplus materials at {settlement}'s open market. "
+            f"The locals are cautious but commerce speaks louder than fear.",
+            relation_change=3,
+            metal_gained=metal,
+            energy_gained=energy,
+        )
+
+    elif action == DiplomacyAction.HIRE_GUIDES:
+        # Local guides provide intel on the system — improves survey ability
+        if disp in (FactionDisposition.HOSTILE, FactionDisposition.WARY):
+            return DiplomacyResult(
+                False,
+                f"No one in {faction.settlement_name or 'the settlement'} "
+                f"will risk guiding outsiders. The atmosphere is thick with distrust.",
+                relation_change=-2,
+            )
+        colonists = rng.randint(50, 200)
+        rare = rng.randint(20, 80)
+        return DiplomacyResult(
+            True,
+            f"A group of experienced {faction.species_name} scouts agrees to "
+            f"share their knowledge of this system's hidden passages and "
+            f"resource deposits. Some even volunteer to join your crew.",
+            relation_change=8,
+            colonists_gained=colonists,
+            rare_gained=rare,
+        )
+
     # Fallback
     return DiplomacyResult(False, "Nothing happens.", 0)
 
@@ -305,10 +363,10 @@ _TRAIT_SETS: list[list[FactionTrait]] = [
     [FactionTrait.MERCANTILE],
     [FactionTrait.MERCANTILE, FactionTrait.PEACEFUL],
     [FactionTrait.MILITANT, FactionTrait.XENOPHOBIC],
-    [FactionTrait.PEACEFUL, FactionTrait.ISOLATIONIST],
+    [FactionTrait.PEACEFUL, FactionTrait.XENOPHILIC],
     [FactionTrait.MERCANTILE, FactionTrait.ISOLATIONIST],
     [FactionTrait.RELIGIOUS, FactionTrait.XENOPHOBIC],
-    [FactionTrait.PEACEFUL, FactionTrait.MERCANTILE],
+    [FactionTrait.PEACEFUL, FactionTrait.XENOPHILIC],
     [FactionTrait.ISOLATIONIST],
 ]
 
@@ -331,7 +389,9 @@ def generate_factions(
 
         # Starting relation based on traits
         base_relation = 0
-        if FactionTrait.PEACEFUL in traits or FactionTrait.MERCANTILE in traits:
+        if FactionTrait.XENOPHILIC in traits:
+            base_relation = rng.randint(15, 30)
+        elif FactionTrait.PEACEFUL in traits or FactionTrait.MERCANTILE in traits:
             base_relation = rng.randint(5, 20)
         elif FactionTrait.XENOPHOBIC in traits or FactionTrait.MILITANT in traits:
             base_relation = rng.randint(-30, -10)

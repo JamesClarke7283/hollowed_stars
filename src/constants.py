@@ -42,7 +42,7 @@ RARE_COLOR = (180, 100, 255)
 # --- Game Metadata ---
 GAME_TITLE = "HOLLOWED STARS"
 GAME_SUBTITLE = "The Last Fleet"
-GAME_VERSION = "0.5.3"
+GAME_VERSION = "0.6.3"
 
 # --- Gameplay ---
 MIN_COLONISTS = 15_000  # Below this, game is lost

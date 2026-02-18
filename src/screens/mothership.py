@@ -81,7 +81,7 @@ class MothershipScreen:
         self.font_info = pygame.font.Font(None, 24)
         self.font_small = pygame.font.Font(None, 22)
 
-        # Tab state: "systems" or "fleet"
+        # Tab state: "systems", "fleet", or "inventory"
         self.active_tab = initial_tab
 
         # --- Systems tab ---
@@ -113,6 +113,8 @@ class MothershipScreen:
                 if self.active_tab == "systems":
                     self.active_tab = "fleet"
                     self.fleet_mode = "list"
+                elif self.active_tab == "fleet":
+                    self.active_tab = "inventory"
                 else:
                     self.active_tab = "systems"
                 return
@@ -120,6 +122,9 @@ class MothershipScreen:
             if event.key == pygame.K_ESCAPE:
                 if self.active_tab == "fleet" and self.fleet_mode != "list":
                     self.fleet_mode = "list"
+                    return
+                if self.active_tab == "inventory":
+                    self.active_tab = "systems"
                     return
                 self.next_state = GameState.STAR_MAP
                 return
@@ -351,8 +356,10 @@ class MothershipScreen:
         # Tab content
         if self.active_tab == "systems":
             self._draw_systems_tab(surface)
-        else:
+        elif self.active_tab == "fleet":
             self._draw_fleet_tab(surface)
+        else:
+            self._draw_inventory_tab(surface)
 
         # Message
         if self._message_timer > 0:
@@ -367,7 +374,7 @@ class MothershipScreen:
 
     def _draw_tabs(self, surface: pygame.Surface) -> None:
         tab_y = 62
-        tabs = [("SYSTEMS", "systems"), ("FLEET", "fleet")]
+        tabs = [("SYSTEMS", "systems"), ("FLEET", "fleet"), ("INVENTORY", "inventory")]
         tab_w = 160
         total_w = tab_w * len(tabs) + 10
         start_x = (SCREEN_WIDTH - total_w) // 2
@@ -400,6 +407,8 @@ class MothershipScreen:
             hint = "W/S slot  |  A/D weapon  |  ENTER equip  |  ESC cancel"
         elif self.fleet_mode == "craft":
             hint = "W/S select  |  ENTER craft to inventory  |  ESC cancel"
+        elif self.active_tab == "inventory":
+            hint = "TAB→Systems  |  ESC back"
         else:
             hint = ""
         surf = self.font_small.render(hint, True, LIGHT_GREY)
@@ -874,3 +883,72 @@ class MothershipScreen:
                 surface.blit(cnt_surf, (x + 700, y))
 
             y += 24
+
+    def _draw_inventory_tab(self, surface: pygame.Surface) -> None:
+        """Draw the inventory tab — displays all equipment items."""
+        x = 40
+        y = 105
+
+        header = self.font_name.render("EQUIPMENT INVENTORY", True, AMBER)
+        surface.blit(header, (x, y))
+        y += 32
+
+        items = self.fleet.inventory.items
+        if not items:
+            empty = self.font_info.render(
+                "No equipment in storage. Find items through events and trade.",
+                True, DARK_GREY,
+            )
+            surface.blit(empty, (x + 20, y + 30))
+            return
+
+        # Sort by type then tier
+        _tier_order = {"federation": 0, "alien": 1, "standard": 2}
+        sorted_items = sorted(
+            items,
+            key=lambda i: (i.item_type, _tier_order.get(i.tier.value, 3)),
+        )
+
+        # Type headers
+        _tier_colors = {
+            EquipmentTier.STANDARD: LIGHT_GREY,
+            EquipmentTier.ALIEN: CYAN,
+            EquipmentTier.FEDERATION: AMBER,
+        }
+
+        current_type = ""
+        for item in sorted_items:
+            if y > SCREEN_HEIGHT - 80:
+                break
+
+            if item.item_type != current_type:
+                current_type = item.item_type
+                type_label = current_type.upper() + "S"
+                th = self.font_info.render(type_label, True, WHITE)
+                surface.blit(th, (x, y))
+                y += 22
+
+            tier_color = _tier_colors.get(item.tier, WHITE)
+
+            # Name with tier badge
+            name_text = item.display_name
+            ns = self.font_small.render(f"  {name_text}", True, tier_color)
+            surface.blit(ns, (x, y))
+
+            # Quantity
+            if item.quantity > 1:
+                qs = self.font_small.render(f"x{item.quantity}", True, HULL_GREEN)
+                surface.blit(qs, (x + 350, y))
+
+            # Description snippet
+            desc = item.description[:50] + ("..." if len(item.description) > 50 else "")
+            ds = self.font_small.render(desc, True, DARK_GREY)
+            surface.blit(ds, (x + 420, y))
+
+            y += 22
+
+        # Total count
+        total = self.fleet.inventory.total_items
+        total_s = self.font_small.render(f"Total items: {total}", True, LIGHT_GREY)
+        surface.blit(total_s, (x, SCREEN_HEIGHT - 80))
+

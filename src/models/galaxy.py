@@ -53,6 +53,8 @@ class SystemObject:
     loot_value: int = 0  # Resource reward for surveying/salvaging
     special_tag: str = ""  # Quest-critical tag: "earth", "gateway", "ninurta"
     faction_id: str = ""  # Owning alien faction ID, if any
+    deep_surveyed: bool = False  # True after full deep survey completion
+    survey_seed: int = 0  # Seed for procedural surface grid generation
 
 
 @dataclass
@@ -353,6 +355,7 @@ def _generate_planet(
         orbit_angle=orbit_angle,
         danger_level=obj_danger,
         loot_value=loot_value,
+        survey_seed=rng.randint(0, 2**31),
     )
 
 
@@ -709,7 +712,7 @@ def assign_factions_to_systems(
         faction.systems_owned.append(home.id)
 
         # Spread to 2–5 connected systems
-        spread_count = rng.randint(2, min(5, len(home.connections)))
+        spread_count = rng.randint(2, max(2, min(5, len(home.connections))))
         for conn_id in home.connections[:spread_count]:
             conn_sys = systems[conn_id]
             if conn_sys.id == 0 or conn_sys.faction_id:

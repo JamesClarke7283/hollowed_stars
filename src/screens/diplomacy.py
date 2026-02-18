@@ -45,6 +45,8 @@ _DISP_COLORS = {
 # Action display names and descriptions
 _ACTION_INFO: list[tuple[DiplomacyAction, str, str]] = [
     (DiplomacyAction.TRADE, "Trade", "Exchange technology for materials"),
+    (DiplomacyAction.BUY_SUPPLIES, "Buy Supplies", "Purchase materials at the local market"),
+    (DiplomacyAction.HIRE_GUIDES, "Hire Guides", "Recruit local scouts for intel and crew"),
     (DiplomacyAction.SHARE_TECHNOLOGY, "Share Tech", "Gift precursor knowledge for goodwill"),
     (DiplomacyAction.DEMAND_TRIBUTE, "Demand Tribute", "Use your advanced position to demand resources"),
     (DiplomacyAction.THREATEN, "Threaten", "Intimidate with your ancient warships"),
@@ -212,7 +214,17 @@ class DiplomacyScreen:
         tech_str = f"Technology Level: {'★' * self.faction.tech_level}{'☆' * (5 - self.faction.tech_level)}"
         ts = self.font_body.render(tech_str, True, LIGHT_GREY)
         surface.blit(ts, (x, y))
-        y += 28
+        y += 24
+
+        # Local settlement info
+        if self.faction.settlement_name:
+            settle_str = f"Settlement: {self.faction.settlement_name}  (Local attitude: {self.faction.settlement_attitude:+d})"
+            sc = HULL_GREEN if self.faction.settlement_attitude > 10 else (RED_ALERT if self.faction.settlement_attitude < -10 else LIGHT_GREY)
+            ss = self.font_body.render(settle_str, True, sc)
+            surface.blit(ss, (x, y))
+            y += 28
+        else:
+            y += 4
 
         # Relation bar
         label = self.font_body.render("Relations:", True, WHITE)
